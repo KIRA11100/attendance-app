@@ -4,6 +4,7 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>نظام إتقان لمتابعة الحلقات</title>
+    <!-- Dependencies -->
     <script src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
     <script src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
     <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
@@ -23,7 +24,6 @@
     <script type="text/babel">
         const { useState, useEffect, useMemo, useRef } = React;
 
-        // دالة تنظيف وتوحيد أرقام الجوال للسعودية
         const formatSaudiPhone = (input) => {
             if (!input) return '966500000000';
             let num = String(input).replace(/[٠-٩]/g, d => "٠١٢٣٤٥٦٧٨٩".indexOf(d)).replace(/\D/g, '');
@@ -51,9 +51,21 @@
         const App = () => {
             const [role, setRole] = useState(null);
             const [view, setView] = useState('inbox');
-            const [students, setStudents] = useState(() => JSON.parse(localStorage.getItem('itqan_v4_students') || '[]'));
-            const [logs, setLogs] = useState(() => JSON.parse(localStorage.getItem('itqan_v4_logs') || '[]'));
-            const [template, setTemplate] = useState(() => localStorage.getItem('itqan_v4_template') || initialTemplate);
+            
+            // قراءة البيانات بأمان مع منع التهيئة بقيم تالفة
+            const [students, setStudents] = useState(() => {
+                try {
+                    const saved = localStorage.getItem('itqan_v5_students');
+                    return saved ? JSON.parse(saved) : [];
+                } catch(e) { return []; }
+            });
+            const [logs, setLogs] = useState(() => {
+                try {
+                    const saved = localStorage.getItem('itqan_v5_logs');
+                    return saved ? JSON.parse(saved) : [];
+                } catch(e) { return []; }
+            });
+            const [template, setTemplate] = useState(() => localStorage.getItem('itqan_v5_template') || initialTemplate);
             const [toast, setToast] = useState(null);
 
             const [pin, setPin] = useState('');
@@ -69,9 +81,17 @@
             const [filterGroup, setFilterGroup] = useState('ALL');
             const fileInputRef = useRef(null);
 
-            useEffect(() => localStorage.setItem('itqan_v4_students', JSON.stringify(students)), [students]);
-            useEffect(() => localStorage.setItem('itqan_v4_logs', JSON.stringify(logs)), [logs]);
-            useEffect(() => localStorage.setItem('itqan_v4_template', template), [template]);
+            useEffect(() => {
+                localStorage.setItem('itqan_v5_students', JSON.stringify(students));
+            }, [students]);
+
+            useEffect(() => {
+                localStorage.setItem('itqan_v5_logs', JSON.stringify(logs));
+            }, [logs]);
+
+            useEffect(() => {
+                localStorage.setItem('itqan_v5_template', template);
+            }, [template]);
 
             const showToast = (msg, type = 'success') => setToast({ msg, type });
 
@@ -94,7 +114,7 @@
                 setSelectedSids([]);
             };
 
-            // معالجة ملف الإكسل باحترافية وتجاهل الصفوف الفارغة تماماً
+            // معالجة ملف الإكسل
             const handleExcelImport = (e) => {
                 const file = e.target.files[0];
                 if (!file) return;
@@ -114,7 +134,6 @@
                             const clean = {};
                             Object.keys(row).forEach(k => clean[k.trim()] = String(row[k]).trim());
 
-                            // البحث عن اسم الطالب بأكثر من صيغة
                             const name = clean['الاسم'] || clean['اسم الطالب'] || clean['name'] || clean['Name'] || '';
                             const phone = formatSaudiPhone(clean['الرقم'] || clean['رقم الجوال'] || clean['phone'] || clean['Phone'] || '');
                             const group = clean['الحلقة'] || clean['الفصل'] || clean['Group'] || 'عام';
@@ -129,7 +148,7 @@
                                 absences: parseInt(clean['غيابات'] || clean['absences'] || 0) || 0,
                                 active: isActive
                             };
-                        }).filter(s => s.name && s.name.length > 1); // شرط أساسي: استبعاد أي صف لا يحتوي على اسم حقيقي
+                        }).filter(s => s.name && s.name.length > 1);
 
                         if (parsedList.length === 0) {
                             showToast("لم يتم العثور على عمود باسم 'الاسم' داخل الملف", "error");
@@ -180,7 +199,7 @@
             // حفظ التعديلات
             const handleSaveEdit = (e) => {
                 e.preventDefault();
-                setStudents(prev => prev.map(s => s.id === editingStudent.id ? {
+                setStudents(prev => prev.map(s => String(s.id) === String(editingStudent.id) ? {
                     ...editingStudent,
                     name: editingStudent.name.trim(),
                     phone: formatSaudiPhone(editingStudent.phone),
@@ -192,34 +211,50 @@
                 showToast("تم تحديث بيانات الطالب");
             };
 
-            // تحضير المسجل
+            // اعتماد تحضير المسجل وحفظ الطلاب وسجل الغياب بأمان تام
             const submitAttendance = () => {
-                const activeGroupStudents = students.filter(s => String(s.group).trim() === activeMonitorGroup && s.active);
-                const absentees = activeGroupStudents.filter(s => attendanceBatch[s.id]).map(s => s.id);
+                const currentGroup = String(activeMonitorGroup).trim();
+                const absentIds = Object.keys(attendanceBatch)
+                    .filter(sid => attendanceBatch[sid] === true)
+                    .map(id => String(id));
 
-                if (absentees.length === 0) {
-                    if (!confirm(`لم تحدد أي غائب في "${activeMonitorGroup}". هل تريد إرسال الكشف كـ 'الكل حاضر'؟`)) return;
+                if (absentIds.length === 0) {
+                    if (!confirm(`لم تحدد أي غائب في "${currentGroup}". هل تريد إرسال الكشف كـ 'الكل حاضر'؟`)) return;
                 }
 
                 const logEntry = {
                     id: Date.now(),
                     timestamp: new Date().toLocaleString('ar-SA'),
-                    group: activeMonitorGroup,
-                    absentees,
+                    group: currentGroup,
+                    absentees: absentIds,
                     reviewed: false
                 };
 
-                setStudents(prev => prev.map(s => absentees.includes(s.id) ? { ...s, absences: (s.absences || 0) + 1 } : s));
-                setLogs(prev => [logEntry, ...prev]);
-                showToast("تم اعتماد كشف الغياب وإرساله للمشرف");
+                // تحديث عدد غيابات الطلاب الغائبين مع الحفاظ على كامل قائمة الطلاب
+                setStudents(prevStudents => {
+                    return prevStudents.map(student => {
+                        if (absentIds.includes(String(student.id))) {
+                            return {
+                                ...student,
+                                absences: (parseInt(student.absences) || 0) + 1
+                            };
+                        }
+                        return student;
+                    });
+                });
+
+                // إضافة السجل في لوحة المشرف
+                setLogs(prevLogs => [logEntry, ...prevLogs]);
+
+                showToast("تم اعتماد كشف الغياب وإرساله للمشرف بنجاح");
                 setActiveMonitorGroup(null);
                 setAttendanceBatch({});
             };
 
             const deleteStudent = (id) => {
                 if (confirm('هل أنت متأكد من حذف هذا الطالب نهائياً؟')) {
-                    setStudents(prev => prev.filter(s => s.id !== id));
-                    setSelectedSids(prev => prev.filter(sid => sid !== id));
+                    setStudents(prev => prev.filter(s => String(s.id) !== String(id)));
+                    setSelectedSids(prev => prev.filter(sid => String(sid) !== String(id)));
                     showToast("تم حذف الطالب");
                 }
             };
@@ -227,7 +262,7 @@
             const deleteSelected = () => {
                 if (selectedSids.length === 0) return;
                 if (confirm(`هل أنت متأكد من حذف ${selectedSids.length} طالب محددين؟`)) {
-                    setStudents(prev => prev.filter(s => !selectedSids.includes(s.id)));
+                    setStudents(prev => prev.filter(s => !selectedSids.includes(String(s.id))));
                     setSelectedSids([]);
                     showToast("تم حذف الطلاب المحددين");
                 }
@@ -402,7 +437,7 @@
                                                     {log.absentees.length === 0 ? (
                                                         <div className="text-center text-emerald-600 text-sm font-bold py-2">✓ لا يوجد غياب في هذه الجلسة (الكل حاضر)</div>
                                                     ) : log.absentees.map(sid => {
-                                                        const s = students.find(st => st.id === sid);
+                                                        const s = students.find(st => String(st.id) === String(sid));
                                                         if (!s) return null;
                                                         const msg = template
                                                             .replace(/{student_name}/g, s.name)
@@ -442,7 +477,6 @@
 
                                 {view === 'students' && (
                                     <div className="space-y-6">
-                                        {/* أدوات الإضافة واستيراد الإكسل */}
                                         <div className="flex flex-wrap gap-3 items-center justify-between bg-white p-5 rounded-3xl border border-slate-100 shadow-sm">
                                             <div>
                                                 <h3 className="font-bold text-slate-800 text-base">إدارة الطلاب والحلقات</h3>
@@ -464,7 +498,6 @@
                                             </div>
                                         </div>
 
-                                        {/* جدول الطلاب وخيارات التصفية والحذف */}
                                         <div className="bg-white rounded-3xl shadow-sm border border-slate-100 overflow-hidden">
                                             <div className="p-4 border-b border-slate-100 flex flex-wrap gap-3 items-center justify-between bg-slate-50/50">
                                                 <div className="flex items-center gap-2">
@@ -506,7 +539,7 @@
                                                                 <input 
                                                                     type="checkbox" 
                                                                     checked={filteredStudents.length > 0 && selectedSids.length === filteredStudents.length}
-                                                                    onChange={e => setSelectedSids(e.target.checked ? filteredStudents.map(s => s.id) : [])}
+                                                                    onChange={e => setSelectedSids(e.target.checked ? filteredStudents.map(s => String(s.id)) : [])}
                                                                 />
                                                             </th>
                                                             <th className="p-4 font-bold">اسم الطالب</th>
@@ -522,8 +555,8 @@
                                                                 <td className="p-4">
                                                                     <input 
                                                                         type="checkbox" 
-                                                                        checked={selectedSids.includes(s.id)}
-                                                                        onChange={() => setSelectedSids(prev => prev.includes(s.id) ? prev.filter(i => i !== s.id) : [...prev, s.id])}
+                                                                        checked={selectedSids.includes(String(s.id))}
+                                                                        onChange={() => setSelectedSids(prev => prev.includes(String(s.id)) ? prev.filter(i => i !== String(s.id)) : [...prev, String(s.id)])}
                                                                     />
                                                                 </td>
                                                                 <td className="p-4">
