@@ -23,12 +23,12 @@
         const { useState, useEffect, useMemo, useRef } = React;
 
         const initialStudents = [
-            { id: 1, name: "أحمد محمد علي", phone: "966500000001", group: "حلقة أبو بكر الصديق", absences: 1 },
-            { id: 2, name: "سارة عبد الرحمن", phone: "966500000002", group: "حلقة عثمان بن عفان", absences: 4 },
-            { id: 3, name: "خالد وليد حسن", phone: "966500000003", group: "حلقة أبو بكر الصديق", absences: 7 },
-            { id: 4, name: "ليلى محمود", phone: "966500000004", group: "حلقة علي بن أبي طالب", absences: 0 },
-            { id: 5, name: "عمر يوسف", phone: "966500000005", group: "حلقة عثمان بن عفان", absences: 3 },
-            { id: 6, name: "عبدالله فهد", phone: "966500000006", group: "حلقة عمر بن الخطاب", absences: 2 },
+            { id: 1, name: "أحمد محمد علي", phone: "966500000001", group: "حلقة أبو بكر الصديق", absences: 1, active: true },
+            { id: 2, name: "سارة عبد الرحمن", phone: "966500000002", group: "حلقة عثمان بن عفان", absences: 4, active: true },
+            { id: 3, name: "خالد وليد حسن", phone: "966500000003", group: "حلقة أبو بكر الصديق", absences: 7, active: true },
+            { id: 4, name: "ليلى محمود", phone: "966500000004", group: "حلقة علي بن أبي طالب", absences: 0, active: false },
+            { id: 5, name: "عمر يوسف", phone: "966500000005", group: "حلقة عثمان بن عفان", absences: 3, active: true },
+            { id: 6, name: "عبدالله فهد", phone: "966500000006", group: "حلقة عمر بن الخطاب", absences: 2, active: true },
         ];
 
         const initialTemplate = "عزيزي ولي أمر الطالب/ة {student_name}، نفيدكم علماً بغياب الطالب اليوم {date}. نرجو التواصل معنا. علماً أن عدد غياباته الإجمالي: {absence_count}";
@@ -92,12 +92,15 @@
             const [attendanceBatch, setAttendanceBatch] = useState({});
             const fileInputRef = useRef(null);
 
+            const [editingStudent, setEditingStudent] = useState(null);
+
             useEffect(() => { localStorage.setItem('students', JSON.stringify(students)); }, [students]);
             useEffect(() => { localStorage.setItem('logs', JSON.stringify(logs)); }, [logs]);
             useEffect(() => { localStorage.setItem('sms_template', template); }, [template]);
 
             const showToast = (msg, type = 'success') => setToast({ msg, type });
 
+            // استخراج الحلقات من قائمة الطلاب
             const groups = useMemo(() => {
                 const set = new Set(students.map(s => s.group ? String(s.group).trim() : '').filter(Boolean));
                 return Array.from(set);
@@ -118,6 +121,7 @@
                 setPin("");
                 setActiveGroup(null);
                 setAttendanceBatch({});
+                setEditingStudent(null);
             };
 
             const handleFileUpload = (e) => {
@@ -145,13 +149,18 @@
                                 phone = '966' + phone.substring(1);
                             }
                             const group = row['الحلقة'] || row['الفصل'] || row['المجموعة'] || row['group'] || row['Group'] || 'عام';
+                            
+                            // فحص حالة الاستمرار
+                            const rawStatus = String(row['الحالة'] || row['status'] || 'مستمر').trim();
+                            const isActive = !(rawStatus.includes('منقطع') || rawStatus.includes('غير') || rawStatus.includes('inactive') || rawStatus.includes('false'));
 
                             return {
                                 id: Date.now() + idx,
                                 name: String(name).trim(),
                                 phone: phone || '966500000000',
                                 group: String(group).trim(),
-                                absences: Number(row['غيابات'] || row['absences'] || 0)
+                                absences: Number(row['غيابات'] || row['absences'] || 0),
+                                active: isActive
                             };
                         });
 
@@ -168,8 +177,8 @@
 
             const downloadTemplate = () => {
                 const templateData = [
-                    { "الاسم": "محمد عبدالله", "الرقم": "966501234567", "الحلقة": "حلقة الفجر" },
-                    { "الاسم": "سعود خالد", "الرقم": "966551234567", "الحلقة": "حلقة العصر" }
+                    { "الاسم": "محمد عبدالله", "الرقم": "966501234567", "الحلقة": "حلقة الفجر", "الحالة": "مستمر" },
+                    { "الاسم": "سعود خالد", "الرقم": "966551234567", "الحلقة": "حلقة العصر", "الحالة": "مستمر" }
                 ];
                 const ws = XLSX.utils.json_to_sheet(templateData);
                 const wb = XLSX.utils.book_new();
@@ -177,10 +186,10 @@
                 XLSX.writeFile(wb, "نموذج_استيراد_الطلاب.xlsx");
             };
 
-            // إرسال تقرير الغياب بدون التسبب في انهيار الحالة
             const submitAttendance = () => {
                 const currentGroupName = activeGroup;
-                const groupStudents = students.filter(s => String(s.group).trim() === String(currentGroupName).trim());
+                // الطلاب الفعالين فقط في هذه الحلقة
+                const groupStudents = students.filter(s => String(s.group).trim() === String(currentGroupName).trim() && s.active !== false);
                 
                 const absentIds = groupStudents
                     .filter(s => attendanceBatch[s.id] === true)
@@ -213,10 +222,36 @@
             };
 
             const deleteStudent = (id) => {
-                if(confirm("هل أنت متأكد من حذف هذا الطالب؟")) {
+                if(confirm("هل أنت متأكد من حذف هذا الطالب نهائياً؟")) {
                     setStudents(students.filter(s => s.id !== id));
                     showToast("تم حذف الطالب");
                 }
+            };
+
+            const handleUpdateStudent = (e) => {
+                e.preventDefault();
+                let cleanPhone = String(editingStudent.phone || '').replace(/[^0-9]/g, '');
+                if (cleanPhone.startsWith('05')) {
+                    cleanPhone = '966' + cleanPhone.substring(1);
+                }
+
+                const updatedList = students.map(s => {
+                    if (s.id === editingStudent.id) {
+                        return {
+                            ...editingStudent,
+                            name: editingStudent.name.trim(),
+                            phone: cleanPhone,
+                            group: editingStudent.group.trim(),
+                            absences: Number(editingStudent.absences) || 0,
+                            active: editingStudent.active === true || editingStudent.active === 'true'
+                        };
+                    }
+                    return s;
+                });
+
+                setStudents(updatedList);
+                setEditingStudent(null);
+                showToast("تم تحديث بيانات الطالب بنجاح");
             };
 
             const clearAllStudents = () => {
@@ -228,9 +263,9 @@
 
             const getStatusBadge = (count) => {
                 const c = Number(count) || 0;
-                if (c >= 6) return <span className="bg-red-100 text-red-700 px-2 py-1 rounded text-xs font-bold">خطر (حمراء)</span>;
-                if (c >= 3) return <span className="bg-yellow-100 text-yellow-700 px-2 py-1 rounded text-xs font-bold">تحذير (صفراء)</span>;
-                return <span className="bg-green-100 text-green-700 px-2 py-1 rounded text-xs font-bold">طبيعي</span>;
+                if (c >= 6) return <span className="bg-red-100 text-red-700 px-2 py-0.5 rounded text-xs font-bold">خطر (حمراء)</span>;
+                if (c >= 3) return <span className="bg-yellow-100 text-yellow-700 px-2 py-0.5 rounded text-xs font-bold">تحذير (صفراء)</span>;
+                return <span className="bg-green-100 text-green-700 px-2 py-0.5 rounded text-xs font-bold">طبيعي</span>;
             };
 
             const formatMsg = (student) => {
@@ -334,7 +369,8 @@
                                         ) : (
                                             <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                                                 {groups.map(groupName => {
-                                                    const groupCount = students.filter(s => String(s.group).trim() === String(groupName).trim()).length;
+                                                    // حساب الطلاب الفعالين فقط في الحلقة
+                                                    const activeGroupCount = students.filter(s => String(s.group).trim() === String(groupName).trim() && s.active !== false).length;
                                                     return (
                                                         <div 
                                                             key={groupName}
@@ -350,7 +386,7 @@
                                                                 </div>
                                                                 <div>
                                                                     <h3 className="font-bold text-gray-800 text-lg">{groupName}</h3>
-                                                                    <p className="text-sm text-gray-400 mt-0.5">{groupCount} طالب مسجل</p>
+                                                                    <p className="text-sm text-gray-400 mt-0.5">{activeGroupCount} طالب نشط</p>
                                                                 </div>
                                                             </div>
                                                             <div className="text-gray-400 group-hover:text-blue-600 transition-colors">
@@ -385,8 +421,9 @@
                                             </div>
                                         </div>
 
+                                        {/* عرض الطلاب الفعالين فقط */}
                                         <div className="space-y-2">
-                                            {students.filter(s => String(s.group).trim() === String(activeGroup).trim()).map(student => (
+                                            {students.filter(s => String(s.group).trim() === String(activeGroup).trim() && s.active !== false).map(student => (
                                                 <div 
                                                     key={student.id} 
                                                     onClick={() => setAttendanceBatch(prev => ({...prev, [student.id]: !prev[student.id]}))}
@@ -518,7 +555,7 @@
                                             <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 border-b border-gray-100 pb-3">
                                                 <div>
                                                     <h3 className="font-bold text-gray-800 text-lg">استيراد الطلاب عبر ملف Excel</h3>
-                                                    <p className="text-xs text-gray-500">ارفع ملف إكسل يحتوي على أعمدة: (الاسم، الرقم، الحلقة)</p>
+                                                    <p className="text-xs text-gray-500">ارفع ملف إكسل يحتوي على أعمدة: (الاسم، الرقم، الحلقة، الحالة)</p>
                                                 </div>
                                                 <button 
                                                     type="button" 
@@ -553,6 +590,9 @@
                                             <div className="p-4 border-b border-gray-100 flex items-center justify-between bg-gray-50/50">
                                                 <div className="font-bold text-gray-700">
                                                     إجمالي الطلاب المسجلين: <span className="text-blue-600">{students.length}</span>
+                                                    <span className="text-xs text-gray-400 mr-2">
+                                                        ({students.filter(s => s.active !== false).length} مستمر / {students.filter(s => s.active === false).length} منقطع)
+                                                    </span>
                                                 </div>
                                                 {students.length > 0 && (
                                                     <button 
@@ -569,25 +609,33 @@
                                                     <tr>
                                                         <th className="p-4">الطالب</th>
                                                         <th className="p-4">الحلقة</th>
-                                                        <th className="p-4">حالة الغياب</th>
+                                                        <th className="p-4">الحالة</th>
+                                                        <th className="p-4">الغيابات</th>
                                                         <th className="p-4 text-left">الإجراء</th>
                                                     </tr>
                                                 </thead>
                                                 <tbody className="divide-y divide-gray-50">
                                                     {students.length === 0 ? (
                                                         <tr>
-                                                            <td colSpan="4" className="p-8 text-center text-gray-400">
+                                                            <td colSpan="5" className="p-8 text-center text-gray-400">
                                                                 لا يوجد طلاب مسجلين. ارفع ملف إكسل من الأعلى لإضافتهم.
                                                             </td>
                                                         </tr>
                                                     ) : (
                                                         students.map(s => (
-                                                            <tr key={s.id} className="hover:bg-gray-50 transition-colors">
+                                                            <tr key={s.id} className={`hover:bg-gray-50 transition-colors ${s.active === false ? 'bg-gray-50/60 opacity-60' : ''}`}>
                                                                 <td className="p-4">
                                                                     <div className="font-bold text-gray-800">{s.name}</div>
                                                                     <div className="text-xs text-gray-400">{s.phone}</div>
                                                                 </td>
                                                                 <td className="p-4 text-gray-600 text-sm font-medium">{s.group}</td>
+                                                                <td className="p-4">
+                                                                    {s.active !== false ? (
+                                                                        <span className="bg-emerald-100 text-emerald-700 px-2 py-0.5 rounded text-xs font-bold">مستمر</span>
+                                                                    ) : (
+                                                                        <span className="bg-gray-200 text-gray-700 px-2 py-0.5 rounded text-xs font-bold">منقطع / غير فعال</span>
+                                                                    )}
+                                                                </td>
                                                                 <td className="p-4">
                                                                     <div className="flex flex-col gap-1 items-start">
                                                                         <span className="text-sm font-bold">{s.absences || 0} غيابات</span>
@@ -595,9 +643,22 @@
                                                                     </div>
                                                                 </td>
                                                                 <td className="p-4 text-left">
-                                                                    <button onClick={() => deleteStudent(s.id)} className="text-red-400 hover:text-red-600 p-2 transition-colors">
-                                                                        <Icon name="trash-2" size={18} />
-                                                                    </button>
+                                                                    <div className="flex items-center justify-end gap-1">
+                                                                        <button 
+                                                                            onClick={() => setEditingStudent({...s, active: s.active !== false})} 
+                                                                            className="text-blue-500 hover:text-blue-700 p-2 hover:bg-blue-50 rounded-lg transition-colors"
+                                                                            title="تعديل بيانات الطالب"
+                                                                        >
+                                                                            <Icon name="pencil" size={18} />
+                                                                        </button>
+                                                                        <button 
+                                                                            onClick={() => deleteStudent(s.id)} 
+                                                                            className="text-red-400 hover:text-red-600 p-2 hover:bg-red-50 rounded-lg transition-colors"
+                                                                            title="حذف الطالب"
+                                                                        >
+                                                                            <Icon name="trash-2" size={18} />
+                                                                        </button>
+                                                                    </div>
                                                                 </td>
                                                             </tr>
                                                         ))
@@ -628,6 +689,96 @@
                             </div>
                         )}
                     </main>
+
+                    {/* نافذة تعديل بيانات الطالب وحالته */}
+                    {editingStudent && (
+                        <div className="fixed inset-0 bg-black/40 backdrop-blur-sm z-50 flex items-center justify-center p-4">
+                            <div className="bg-white rounded-3xl shadow-2xl max-w-md w-full p-6 space-y-4 animate-scale">
+                                <div className="flex items-center justify-between border-b border-gray-100 pb-3">
+                                    <h3 className="font-bold text-gray-800 text-lg">تعديل بيانات الطالب</h3>
+                                    <button 
+                                        onClick={() => setEditingStudent(null)} 
+                                        className="text-gray-400 hover:text-gray-600 p-1"
+                                    >
+                                        <Icon name="x" size={20} />
+                                    </button>
+                                </div>
+
+                                <form onSubmit={handleUpdateStudent} className="space-y-4">
+                                    <div>
+                                        <label className="text-xs font-bold text-gray-600 mb-1 block">اسم الطالب</label>
+                                        <input 
+                                            required 
+                                            className="w-full p-3 bg-gray-50 border border-gray-200 rounded-xl outline-none focus:ring-2 focus:ring-blue-500" 
+                                            value={editingStudent.name} 
+                                            onChange={(e) => setEditingStudent({...editingStudent, name: e.target.value})}
+                                        />
+                                    </div>
+
+                                    <div>
+                                        <label className="text-xs font-bold text-gray-600 mb-1 block">رقم واتساب ولي الأمر</label>
+                                        <input 
+                                            required 
+                                            className="w-full p-3 bg-gray-50 border border-gray-200 rounded-xl outline-none focus:ring-2 focus:ring-blue-500 text-left" 
+                                            dir="ltr"
+                                            value={editingStudent.phone} 
+                                            onChange={(e) => setEditingStudent({...editingStudent, phone: e.target.value})}
+                                        />
+                                    </div>
+
+                                    <div>
+                                        <label className="text-xs font-bold text-gray-600 mb-1 block">الحلقة أو الفصل</label>
+                                        <input 
+                                            required 
+                                            className="w-full p-3 bg-gray-50 border border-gray-200 rounded-xl outline-none focus:ring-2 focus:ring-blue-500" 
+                                            value={editingStudent.group} 
+                                            onChange={(e) => setEditingStudent({...editingStudent, group: e.target.value})}
+                                        />
+                                    </div>
+
+                                    <div className="grid grid-cols-2 gap-3">
+                                        <div>
+                                            <label className="text-xs font-bold text-gray-600 mb-1 block">حالة الطالب</label>
+                                            <select 
+                                                className="w-full p-3 bg-gray-50 border border-gray-200 rounded-xl outline-none focus:ring-2 focus:ring-blue-500 font-bold"
+                                                value={editingStudent.active ? 'true' : 'false'}
+                                                onChange={(e) => setEditingStudent({...editingStudent, active: e.target.value === 'true'})}
+                                            >
+                                                <option value="true">مستمر (نشط)</option>
+                                                <option value="false">منقطع / غير فعال</option>
+                                            </select>
+                                        </div>
+                                        <div>
+                                            <label className="text-xs font-bold text-gray-600 mb-1 block">الغيابات التراكمية</label>
+                                            <input 
+                                                type="number" 
+                                                min="0"
+                                                className="w-full p-3 bg-gray-50 border border-gray-200 rounded-xl outline-none focus:ring-2 focus:ring-blue-500" 
+                                                value={editingStudent.absences} 
+                                                onChange={(e) => setEditingStudent({...editingStudent, absences: e.target.value})}
+                                            />
+                                        </div>
+                                    </div>
+
+                                    <div className="flex gap-3 pt-2">
+                                        <button 
+                                            type="submit" 
+                                            className="flex-1 bg-blue-600 hover:bg-blue-700 text-white font-bold py-3 rounded-xl transition-all shadow-md"
+                                        >
+                                            حفظ التعديلات
+                                        </button>
+                                        <button 
+                                            type="button" 
+                                            onClick={() => setEditingStudent(null)}
+                                            className="px-5 bg-gray-100 hover:bg-gray-200 text-gray-700 font-bold rounded-xl transition-all"
+                                        >
+                                            إلغاء
+                                        </button>
+                                    </div>
+                                </form>
+                            </div>
+                        </div>
+                    )}
 
                     {toast && (
                         <Toast 
