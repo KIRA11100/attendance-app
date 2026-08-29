@@ -92,7 +92,12 @@
             const [attendanceBatch, setAttendanceBatch] = useState({});
             const fileInputRef = useRef(null);
 
+            // حالة تعديل الطالب
             const [editingStudent, setEditingStudent] = useState(null);
+            
+            // حالة تحديد الطلاب للحذف
+            const [selectedStudents, setSelectedStudents] = useState([]);
+            const [filterGroup, setFilterGroup] = useState('ALL');
 
             useEffect(() => { localStorage.setItem('students', JSON.stringify(students)); }, [students]);
             useEffect(() => { localStorage.setItem('logs', JSON.stringify(logs)); }, [logs]);
@@ -100,7 +105,6 @@
 
             const showToast = (msg, type = 'success') => setToast({ msg, type });
 
-            // استخراج الحلقات من قائمة الطلاب
             const groups = useMemo(() => {
                 const set = new Set(students.map(s => s.group ? String(s.group).trim() : '').filter(Boolean));
                 return Array.from(set);
@@ -122,6 +126,7 @@
                 setActiveGroup(null);
                 setAttendanceBatch({});
                 setEditingStudent(null);
+                setSelectedStudents([]);
             };
 
             const handleFileUpload = (e) => {
@@ -150,7 +155,6 @@
                             }
                             const group = row['الحلقة'] || row['الفصل'] || row['المجموعة'] || row['group'] || row['Group'] || 'عام';
                             
-                            // فحص حالة الاستمرار
                             const rawStatus = String(row['الحالة'] || row['status'] || 'مستمر').trim();
                             const isActive = !(rawStatus.includes('منقطع') || rawStatus.includes('غير') || rawStatus.includes('inactive') || rawStatus.includes('false'));
 
@@ -188,7 +192,6 @@
 
             const submitAttendance = () => {
                 const currentGroupName = activeGroup;
-                // الطلاب الفعالين فقط في هذه الحلقة
                 const groupStudents = students.filter(s => String(s.group).trim() === String(currentGroupName).trim() && s.active !== false);
                 
                 const absentIds = groupStudents
@@ -224,10 +227,45 @@
             const deleteStudent = (id) => {
                 if(confirm("هل أنت متأكد من حذف هذا الطالب نهائياً؟")) {
                     setStudents(students.filter(s => s.id !== id));
+                    setSelectedStudents(selectedStudents.filter(sid => sid !== id));
                     showToast("تم حذف الطالب");
                 }
             };
 
+            const deleteSelectedStudents = () => {
+                if (selectedStudents.length === 0) return;
+                if (confirm(`هل أنت متأكد من حذف ${selectedStudents.length} طالب محددين نهائياً؟`)) {
+                    setStudents(students.filter(s => !selectedStudents.includes(s.id)));
+                    setSelectedStudents([]);
+                    showToast("تم حذف الطلاب المحددين بنجاح");
+                }
+            };
+
+            const deleteEntireGroup = (groupName) => {
+                if (confirm(`تحذير: هل أنت متأكد من حذف جميع طلاب "${groupName}"؟`)) {
+                    setStudents(students.filter(s => String(s.group).trim() !== String(groupName).trim()));
+                    showToast(`تم حذف جميع طلاب ${groupName}`);
+                }
+            };
+
+            const toggleSelectAll = () => {
+                const currentList = filteredStudents.map(s => s.id);
+                if (selectedStudents.length === currentList.length) {
+                    setSelectedStudents([]);
+                } else {
+                    setSelectedStudents(currentList);
+                }
+            };
+
+            const toggleStudentSelection = (id) => {
+                if (selectedStudents.includes(id)) {
+                    setSelectedStudents(selectedStudents.filter(sid => sid !== id));
+                } else {
+                    setSelectedStudents([...selectedStudents, id]);
+                }
+            };
+
+            // حفظ بيانات الطالب المعدلة
             const handleUpdateStudent = (e) => {
                 e.preventDefault();
                 let cleanPhone = String(editingStudent.phone || '').replace(/[^0-9]/g, '');
@@ -255,8 +293,9 @@
             };
 
             const clearAllStudents = () => {
-                if(confirm("تحذير: هل أنت متأكد من مسح جميع بيانات الطلاب الحالية؟")) {
+                if(confirm("تحذير أخير: هل أنت متأكد من مسح جميع بيانات الطلاب الحالية في النظام بالكامل؟")) {
                     setStudents([]);
+                    setSelectedStudents([]);
                     showToast("تم مسح جميع الطلاب");
                 }
             };
@@ -279,6 +318,11 @@
                 setLogs(logs.map(l => l.id === logId ? {...l, processed: true} : l));
                 showToast("تم تحديث الحالة");
             };
+
+            const filteredStudents = useMemo(() => {
+                if (filterGroup === 'ALL') return students;
+                return students.filter(s => String(s.group).trim() === filterGroup);
+            }, [students, filterGroup]);
 
             if (!user) {
                 return (
@@ -369,7 +413,6 @@
                                         ) : (
                                             <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                                                 {groups.map(groupName => {
-                                                    // حساب الطلاب الفعالين فقط في الحلقة
                                                     const activeGroupCount = students.filter(s => String(s.group).trim() === String(groupName).trim() && s.active !== false).length;
                                                     return (
                                                         <div 
@@ -421,7 +464,6 @@
                                             </div>
                                         </div>
 
-                                        {/* عرض الطلاب الفعالين فقط */}
                                         <div className="space-y-2">
                                             {students.filter(s => String(s.group).trim() === String(activeGroup).trim() && s.active !== false).map(student => (
                                                 <div 
@@ -474,325 +516,3 @@
                                         onClick={() => setView('settings')}
                                         className={`flex-1 py-4 text-sm font-bold flex flex-col items-center gap-1 transition-colors ${view === 'settings' ? 'bg-blue-50 text-blue-600 border-b-2 border-blue-600' : 'text-gray-400'}`}
                                     >
-                                        <Icon name="settings" /> الإعدادات
-                                    </button>
-                                </div>
-
-                                {view === 'dashboard' && (
-                                    <div className="space-y-4">
-                                        <h2 className="text-xl font-bold text-gray-800">تنبيهات الغياب الواردة</h2>
-                                        {logs.length === 0 && (
-                                            <div className="text-center py-20 bg-white rounded-3xl border-2 border-dashed border-gray-200">
-                                                <Icon name="coffee" size={48} className="mx-auto text-gray-300 mb-4" />
-                                                <p className="text-gray-400">لا توجد تقارير غياب واردة حتى الآن</p>
-                                            </div>
-                                        )}
-                                        {logs.map(log => (
-                                            <div key={log.id} className={`bg-white rounded-2xl shadow-sm border transition-all ${log.processed ? 'opacity-60 bg-gray-50 border-gray-200' : 'border-blue-100'}`}>
-                                                <div className="p-4 border-b border-gray-50 flex justify-between items-center">
-                                                    <div>
-                                                        <div className="flex items-center gap-2">
-                                                            <span className="text-xs font-bold bg-blue-100 text-blue-700 px-2 py-0.5 rounded-md">
-                                                                {log.group || 'جلسة عامة'}
-                                                            </span>
-                                                            <span className="text-xs text-gray-400">{log.date}</span>
-                                                        </div>
-                                                    </div>
-                                                    {!log.processed ? (
-                                                        <button onClick={() => markLogProcessed(log.id)} className="text-xs bg-gray-100 text-gray-600 px-3 py-1.5 rounded-full hover:bg-green-100 hover:text-green-700 transition-colors font-medium">
-                                                            تحديد كـ تمت المعالجة
-                                                        </button>
-                                                    ) : (
-                                                        <span className="text-xs bg-green-100 text-green-700 px-3 py-1 rounded-full font-bold">مكتمل</span>
-                                                    )}
-                                                </div>
-                                                <div className="p-4 space-y-3">
-                                                    {(!log.absentees || log.absentees.length === 0) ? (
-                                                        <p className="text-sm text-green-600 font-medium">✓ ممتاز، جميع طلاب هذه الحلقة حاضرون</p>
-                                                    ) : (
-                                                        log.absentees.map(absentId => {
-                                                            const s = students.find(st => st.id === absentId);
-                                                            if (!s) return null;
-                                                            return (
-                                                                <div key={absentId} className="flex items-center justify-between bg-gray-50 p-3 rounded-xl border border-gray-100">
-                                                                    <div>
-                                                                        <div className="font-bold text-gray-800">{s.name}</div>
-                                                                        <div className="text-xs text-gray-500">{s.phone} | غياباته: {s.absences || 0}</div>
-                                                                    </div>
-                                                                    <div className="flex gap-2">
-                                                                        <button 
-                                                                            onClick={() => {
-                                                                                navigator.clipboard.writeText(formatMsg(s));
-                                                                                showToast("تم نسخ نص الرسالة");
-                                                                            }}
-                                                                            className="p-2 bg-white text-gray-600 rounded-lg border border-gray-200 hover:text-blue-600 transition-colors"
-                                                                            title="نسخ الرسالة"
-                                                                        >
-                                                                            <Icon name="copy" size={18} />
-                                                                        </button>
-                                                                        <a 
-                                                                            href={`https://wa.me/${s.phone}?text=${encodeURIComponent(formatMsg(s))}`}
-                                                                            target="_blank"
-                                                                            className="p-2 bg-green-500 text-white rounded-lg hover:bg-green-600 transition-colors flex items-center justify-center"
-                                                                            title="محادثة واتساب"
-                                                                        >
-                                                                            <Icon name="send" size={18} />
-                                                                        </a>
-                                                                    </div>
-                                                                </div>
-                                                            );
-                                                        })
-                                                    )}
-                                                </div>
-                                            </div>
-                                        ))}
-                                    </div>
-                                )}
-
-                                {view === 'students' && (
-                                    <div className="space-y-6">
-                                        <div className="bg-white p-6 rounded-2xl shadow-sm border border-gray-100 space-y-4">
-                                            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 border-b border-gray-100 pb-3">
-                                                <div>
-                                                    <h3 className="font-bold text-gray-800 text-lg">استيراد الطلاب عبر ملف Excel</h3>
-                                                    <p className="text-xs text-gray-500">ارفع ملف إكسل يحتوي على أعمدة: (الاسم، الرقم، الحلقة، الحالة)</p>
-                                                </div>
-                                                <button 
-                                                    type="button" 
-                                                    onClick={downloadTemplate}
-                                                    className="flex items-center gap-1 text-xs bg-gray-100 text-gray-700 px-3 py-2 rounded-xl hover:bg-gray-200 font-bold transition-colors w-fit"
-                                                >
-                                                    <Icon name="file-down" size={16} />
-                                                    تحميل نموذج Excel جاهز
-                                                </button>
-                                            </div>
-
-                                            <div className="border-2 border-dashed border-blue-200 bg-blue-50/50 rounded-2xl p-6 text-center hover:bg-blue-50 transition-colors">
-                                                <input 
-                                                    type="file" 
-                                                    ref={fileInputRef}
-                                                    accept=".xlsx, .xls, .csv" 
-                                                    onChange={handleFileUpload} 
-                                                    className="hidden" 
-                                                    id="excel-upload"
-                                                />
-                                                <label htmlFor="excel-upload" className="cursor-pointer flex flex-col items-center gap-2">
-                                                    <div className="w-12 h-12 bg-blue-600 text-white rounded-full flex items-center justify-center shadow-md">
-                                                        <Icon name="file-spreadsheet" size={24} />
-                                                    </div>
-                                                    <span className="font-bold text-blue-800">اضغط هنا لاختيار ورفع ملف Excel</span>
-                                                    <span className="text-xs text-gray-400">يدعم صيغ .xlsx و .xls و .csv</span>
-                                                </label>
-                                            </div>
-                                        </div>
-
-                                        <div className="bg-white rounded-2xl shadow-sm border border-gray-100 overflow-hidden">
-                                            <div className="p-4 border-b border-gray-100 flex items-center justify-between bg-gray-50/50">
-                                                <div className="font-bold text-gray-700">
-                                                    إجمالي الطلاب المسجلين: <span className="text-blue-600">{students.length}</span>
-                                                    <span className="text-xs text-gray-400 mr-2">
-                                                        ({students.filter(s => s.active !== false).length} مستمر / {students.filter(s => s.active === false).length} منقطع)
-                                                    </span>
-                                                </div>
-                                                {students.length > 0 && (
-                                                    <button 
-                                                        onClick={clearAllStudents}
-                                                        className="text-xs text-red-500 hover:text-red-700 font-bold transition-colors"
-                                                    >
-                                                        مسح جميع الطلاب
-                                                    </button>
-                                                )}
-                                            </div>
-
-                                            <table className="w-full text-right">
-                                                <thead className="bg-gray-50 text-gray-500 text-sm">
-                                                    <tr>
-                                                        <th className="p-4">الطالب</th>
-                                                        <th className="p-4">الحلقة</th>
-                                                        <th className="p-4">الحالة</th>
-                                                        <th className="p-4">الغيابات</th>
-                                                        <th className="p-4 text-left">الإجراء</th>
-                                                    </tr>
-                                                </thead>
-                                                <tbody className="divide-y divide-gray-50">
-                                                    {students.length === 0 ? (
-                                                        <tr>
-                                                            <td colSpan="5" className="p-8 text-center text-gray-400">
-                                                                لا يوجد طلاب مسجلين. ارفع ملف إكسل من الأعلى لإضافتهم.
-                                                            </td>
-                                                        </tr>
-                                                    ) : (
-                                                        students.map(s => (
-                                                            <tr key={s.id} className={`hover:bg-gray-50 transition-colors ${s.active === false ? 'bg-gray-50/60 opacity-60' : ''}`}>
-                                                                <td className="p-4">
-                                                                    <div className="font-bold text-gray-800">{s.name}</div>
-                                                                    <div className="text-xs text-gray-400">{s.phone}</div>
-                                                                </td>
-                                                                <td className="p-4 text-gray-600 text-sm font-medium">{s.group}</td>
-                                                                <td className="p-4">
-                                                                    {s.active !== false ? (
-                                                                        <span className="bg-emerald-100 text-emerald-700 px-2 py-0.5 rounded text-xs font-bold">مستمر</span>
-                                                                    ) : (
-                                                                        <span className="bg-gray-200 text-gray-700 px-2 py-0.5 rounded text-xs font-bold">منقطع / غير فعال</span>
-                                                                    )}
-                                                                </td>
-                                                                <td className="p-4">
-                                                                    <div className="flex flex-col gap-1 items-start">
-                                                                        <span className="text-sm font-bold">{s.absences || 0} غيابات</span>
-                                                                        {getStatusBadge(s.absences)}
-                                                                    </div>
-                                                                </td>
-                                                                <td className="p-4 text-left">
-                                                                    <div className="flex items-center justify-end gap-1">
-                                                                        <button 
-                                                                            onClick={() => setEditingStudent({...s, active: s.active !== false})} 
-                                                                            className="text-blue-500 hover:text-blue-700 p-2 hover:bg-blue-50 rounded-lg transition-colors"
-                                                                            title="تعديل بيانات الطالب"
-                                                                        >
-                                                                            <Icon name="pencil" size={18} />
-                                                                        </button>
-                                                                        <button 
-                                                                            onClick={() => deleteStudent(s.id)} 
-                                                                            className="text-red-400 hover:text-red-600 p-2 hover:bg-red-50 rounded-lg transition-colors"
-                                                                            title="حذف الطالب"
-                                                                        >
-                                                                            <Icon name="trash-2" size={18} />
-                                                                        </button>
-                                                                    </div>
-                                                                </td>
-                                                            </tr>
-                                                        ))
-                                                    )}
-                                                </tbody>
-                                            </table>
-                                        </div>
-                                    </div>
-                                )}
-
-                                {view === 'settings' && (
-                                    <div className="bg-white p-6 rounded-2xl shadow-sm border border-gray-100 space-y-4">
-                                        <h3 className="font-bold text-gray-800">نموذج رسالة الواتساب</h3>
-                                        <p className="text-sm text-gray-500">الكلمات التلقائية المتاحة: {'{student_name}'} ، {'{date}'} ، {'{absence_count}'}</p>
-                                        <textarea 
-                                            className="w-full p-4 h-40 bg-gray-50 border border-gray-100 rounded-xl outline-none focus:ring-2 focus:ring-blue-500 leading-relaxed"
-                                            value={template}
-                                            onChange={(e) => setTemplate(e.target.value)}
-                                        ></textarea>
-                                        <button 
-                                            onClick={() => showToast("تم حفظ النموذج بنجاح")}
-                                            className="bg-blue-600 text-white px-6 py-3 rounded-xl font-bold shadow-lg hover:bg-blue-700 transition-all"
-                                        >
-                                            حفظ الإعدادات
-                                        </button>
-                                    </div>
-                                )}
-                            </div>
-                        )}
-                    </main>
-
-                    {/* نافذة تعديل بيانات الطالب وحالته */}
-                    {editingStudent && (
-                        <div className="fixed inset-0 bg-black/40 backdrop-blur-sm z-50 flex items-center justify-center p-4">
-                            <div className="bg-white rounded-3xl shadow-2xl max-w-md w-full p-6 space-y-4 animate-scale">
-                                <div className="flex items-center justify-between border-b border-gray-100 pb-3">
-                                    <h3 className="font-bold text-gray-800 text-lg">تعديل بيانات الطالب</h3>
-                                    <button 
-                                        onClick={() => setEditingStudent(null)} 
-                                        className="text-gray-400 hover:text-gray-600 p-1"
-                                    >
-                                        <Icon name="x" size={20} />
-                                    </button>
-                                </div>
-
-                                <form onSubmit={handleUpdateStudent} className="space-y-4">
-                                    <div>
-                                        <label className="text-xs font-bold text-gray-600 mb-1 block">اسم الطالب</label>
-                                        <input 
-                                            required 
-                                            className="w-full p-3 bg-gray-50 border border-gray-200 rounded-xl outline-none focus:ring-2 focus:ring-blue-500" 
-                                            value={editingStudent.name} 
-                                            onChange={(e) => setEditingStudent({...editingStudent, name: e.target.value})}
-                                        />
-                                    </div>
-
-                                    <div>
-                                        <label className="text-xs font-bold text-gray-600 mb-1 block">رقم واتساب ولي الأمر</label>
-                                        <input 
-                                            required 
-                                            className="w-full p-3 bg-gray-50 border border-gray-200 rounded-xl outline-none focus:ring-2 focus:ring-blue-500 text-left" 
-                                            dir="ltr"
-                                            value={editingStudent.phone} 
-                                            onChange={(e) => setEditingStudent({...editingStudent, phone: e.target.value})}
-                                        />
-                                    </div>
-
-                                    <div>
-                                        <label className="text-xs font-bold text-gray-600 mb-1 block">الحلقة أو الفصل</label>
-                                        <input 
-                                            required 
-                                            className="w-full p-3 bg-gray-50 border border-gray-200 rounded-xl outline-none focus:ring-2 focus:ring-blue-500" 
-                                            value={editingStudent.group} 
-                                            onChange={(e) => setEditingStudent({...editingStudent, group: e.target.value})}
-                                        />
-                                    </div>
-
-                                    <div className="grid grid-cols-2 gap-3">
-                                        <div>
-                                            <label className="text-xs font-bold text-gray-600 mb-1 block">حالة الطالب</label>
-                                            <select 
-                                                className="w-full p-3 bg-gray-50 border border-gray-200 rounded-xl outline-none focus:ring-2 focus:ring-blue-500 font-bold"
-                                                value={editingStudent.active ? 'true' : 'false'}
-                                                onChange={(e) => setEditingStudent({...editingStudent, active: e.target.value === 'true'})}
-                                            >
-                                                <option value="true">مستمر (نشط)</option>
-                                                <option value="false">منقطع / غير فعال</option>
-                                            </select>
-                                        </div>
-                                        <div>
-                                            <label className="text-xs font-bold text-gray-600 mb-1 block">الغيابات التراكمية</label>
-                                            <input 
-                                                type="number" 
-                                                min="0"
-                                                className="w-full p-3 bg-gray-50 border border-gray-200 rounded-xl outline-none focus:ring-2 focus:ring-blue-500" 
-                                                value={editingStudent.absences} 
-                                                onChange={(e) => setEditingStudent({...editingStudent, absences: e.target.value})}
-                                            />
-                                        </div>
-                                    </div>
-
-                                    <div className="flex gap-3 pt-2">
-                                        <button 
-                                            type="submit" 
-                                            className="flex-1 bg-blue-600 hover:bg-blue-700 text-white font-bold py-3 rounded-xl transition-all shadow-md"
-                                        >
-                                            حفظ التعديلات
-                                        </button>
-                                        <button 
-                                            type="button" 
-                                            onClick={() => setEditingStudent(null)}
-                                            className="px-5 bg-gray-100 hover:bg-gray-200 text-gray-700 font-bold rounded-xl transition-all"
-                                        >
-                                            إلغاء
-                                        </button>
-                                    </div>
-                                </form>
-                            </div>
-                        </div>
-                    )}
-
-                    {toast && (
-                        <Toast 
-                            message={toast.msg} 
-                            type={toast.type} 
-                            onClose={() => setToast(null)} 
-                        />
-                    )}
-                </div>
-            );
-        };
-
-        const root = ReactDOM.createRoot(document.getElementById('root'));
-        root.render(<App />);
-    </script>
-</body>
-</html>
