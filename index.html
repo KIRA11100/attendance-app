@@ -4,163 +4,202 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>نظام إتقان لمتابعة الحلقات</title>
-    <!-- Dependencies -->
     <script src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
     <script src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
     <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
     <script src="https://cdn.tailwindcss.com"></script>
     <script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
-    <!-- Fonts -->
-    <link href="https://fonts.googleapis.com/css2?family=Tajawal:wght@300;400;500;700;800&display=swap" rel="stylesheet">
+    <link href="https://fonts.googleapis.com/css2?family=Tajawal:wght@400;500;700;800&display=swap" rel="stylesheet">
     <style>
         body { font-family: 'Tajawal', sans-serif; background-color: #f8fafc; }
-        .glass { background: rgba(255, 255, 255, 0.95); backdrop-filter: blur(10px); }
-        .modal-overlay { background: rgba(15, 23, 42, 0.6); backdrop-filter: blur(4px); }
-        input[type="checkbox"] { accent-color: #2563eb; width: 1.2rem; height: 1.2rem; cursor: pointer; }
-        /* Custom scrollbar for tables */
-        ::-webkit-scrollbar { width: 6px; height: 6px; }
-        ::-webkit-scrollbar-track { background: #f1f1f1; }
-        ::-webkit-scrollbar-thumb { background: #cbd5e1; border-radius: 10px; }
-        .animate-fade { animation: fadeIn 0.25s ease-out; }
-        @keyframes fadeIn { from { opacity: 0; transform: translateY(10px); } to { opacity: 1; transform: translateY(0); } }
+        .glass { background: rgba(255, 255, 255, 0.95); backdrop-filter: blur(8px); }
+        .modal-overlay { background: rgba(15, 23, 42, 0.65); backdrop-filter: blur(4px); }
+        input[type="checkbox"] { accent-color: #2563eb; width: 1.15rem; height: 1.15rem; cursor: pointer; }
     </style>
 </head>
 <body>
     <div id="root"></div>
 
     <script type="text/babel">
-        const { useState, useEffect, useMemo } = React;
+        const { useState, useEffect, useMemo, useRef } = React;
 
-        // --- SVGs Icons ---
-        const Icons = {
-            User: () => <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M16 7a4 4 0 11-8 0 4 4 0 018 0zM12 14a7 7 0 00-7 7h14a7 7 0 00-7-7z" /></svg>,
-            Settings: () => <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.065 2.572c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.572 1.065c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.065-2.572c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z" /><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" /></svg>,
-            Inbox: () => <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M20 13V6a2 2 0 00-2-2H6a2 2 0 00-2 2v7m16 0a2 2 0 01-2 2H6a2 2 0 01-2-2m16 0l-8 5-8-5" /></svg>,
-            Trash: () => <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" /></svg>,
-            Edit: () => <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z" /></svg>,
-            Check: () => <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M5 13l4 4L19 7" /></svg>,
-            Plus: () => <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M12 4v16m8-8H4" /></svg>,
-            Copy: () => <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M8 16H6a2 2 0 01-2-2V6a2 2 0 012-2h8a2 2 0 012 2v2m-6 12h8a2 2 0 002-2v-8a2 2 0 00-2-2h-8a2 2 0 00-2 2v8a2 2 0 002 2z" /></svg>,
-            Whatsapp: () => <svg className="w-5 h-5 fill-current" viewBox="0 0 24 24"><path d="M17.472 14.382c-.297-.149-1.758-.867-2.03-.967-.273-.099-.471-.148-.67.15-.197.297-.767.966-.94 1.164-.173.199-.347.223-.644.075-.297-.15-1.255-.463-2.39-1.475-.883-.788-1.48-1.761-1.653-2.059-.173-.297-.018-.458.13-.606.134-.133.298-.347.446-.52.149-.174.198-.298.298-.497.099-.198.05-.371-.025-.52-.075-.149-.669-1.612-.916-2.207-.242-.579-.487-.5-.669-.51-.173-.008-.371-.01-.57-.01-.198 0-.52.074-.792.372-.272.297-1.04 1.016-1.04 2.479 0 1.462 1.065 2.875 1.213 3.074.149.198 2.096 3.2 5.077 4.487.709.306 1.262.489 1.694.625.712.227 1.36.195 1.871.118.571-.085 1.758-.719 2.006-1.413.248-.694.248-1.289.173-1.413-.074-.124-.272-.198-.57-.347m-5.421 7.403h-.004a9.87 9.87 0 01-5.031-1.378l-.361-.214-3.741.982.998-3.648-.235-.374a9.86 9.86 0 01-1.51-5.26c.001-5.45 4.436-9.884 9.888-9.884 2.64 0 5.122 1.03 6.988 2.898a9.825 9.825 0 012.893 6.994c-.003 5.45-4.437 9.884-9.885 9.884m8.413-18.297A11.815 11.815 0 0012.05 0C5.495 0 .16 5.335.157 11.892c0 2.096.547 4.142 1.588 5.945L0 24l6.335-1.662c1.72.94 3.659 1.437 5.63 1.438h.004c6.554 0 11.89-5.335 11.893-11.893a11.821 11.821 0 00-3.48-8.413Z"/></svg>,
-            Excel: () => <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M12 10v6m0 0l-3-3m3 3l3-3m2 8H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" /></svg>,
-        };
-
-        // --- Utils ---
+        // دالة تنظيف وتوحيد أرقام الجوال للسعودية
         const formatSaudiPhone = (input) => {
+            if (!input) return '966500000000';
             let num = String(input).replace(/[٠-٩]/g, d => "٠١٢٣٤٥٦٧٨٩".indexOf(d)).replace(/\D/g, '');
             if (num.startsWith('05')) num = '966' + num.substring(1);
-            else if (num.startsWith('5')) num = '966' + num;
+            else if (num.startsWith('5') && num.length === 9) num = '966' + num;
             else if (num.length === 9) num = '966' + num;
-            return num;
+            return num || '966500000000';
         };
 
         const initialTemplate = "عزيزي ولي أمر الطالب/ة {student_name}، نفيدكم علماً بغياب الطالب اليوم {date}. نرجو التواصل معنا. علماً أن عدد غياباته الإجمالي: {absence_count}";
 
-        // --- App Logic ---
+        const Toast = ({ message, type, onClose }) => {
+            useEffect(() => {
+                const timer = setTimeout(onClose, 3000);
+                return () => clearTimeout(timer);
+            }, [onClose]);
+
+            return (
+                <div className={`fixed bottom-6 left-1/2 -translate-x-1/2 z-50 px-6 py-3 rounded-2xl shadow-xl text-white font-bold text-sm transition-all animate-bounce ${type === 'success' ? 'bg-emerald-600' : 'bg-red-600'}`}>
+                    {message}
+                </div>
+            );
+        };
+
         const App = () => {
             const [role, setRole] = useState(null);
             const [view, setView] = useState('inbox');
-            const [students, setStudents] = useState(() => JSON.parse(localStorage.getItem('itqan_v3_students') || '[]'));
-            const [logs, setLogs] = useState(() => JSON.parse(localStorage.getItem('itqan_v3_logs') || '[]'));
-            const [template, setTemplate] = useState(() => localStorage.getItem('itqan_v3_template') || initialTemplate);
-            
+            const [students, setStudents] = useState(() => JSON.parse(localStorage.getItem('itqan_v4_students') || '[]'));
+            const [logs, setLogs] = useState(() => JSON.parse(localStorage.getItem('itqan_v4_logs') || '[]'));
+            const [template, setTemplate] = useState(() => localStorage.getItem('itqan_v4_template') || initialTemplate);
             const [toast, setToast] = useState(null);
+
             const [pin, setPin] = useState('');
             const [activeMonitorGroup, setActiveMonitorGroup] = useState(null);
             const [attendanceBatch, setAttendanceBatch] = useState({});
-            
-            // Modals State
-            const [editingStudent, setEditingStudent] = useState(null);
+
+            // Modals
             const [showAddModal, setShowAddModal] = useState(false);
+            const [editingStudent, setEditingStudent] = useState(null);
             const [newStudent, setNewStudent] = useState({ name: '', phone: '', group: '', active: true });
-            
+
             const [selectedSids, setSelectedSids] = useState([]);
             const [filterGroup, setFilterGroup] = useState('ALL');
+            const fileInputRef = useRef(null);
 
-            useEffect(() => localStorage.setItem('itqan_v3_students', JSON.stringify(students)), [students]);
-            useEffect(() => localStorage.setItem('itqan_v3_logs', JSON.stringify(logs)), [logs]);
-            useEffect(() => localStorage.setItem('itqan_v3_template', template), [template]);
+            useEffect(() => localStorage.setItem('itqan_v4_students', JSON.stringify(students)), [students]);
+            useEffect(() => localStorage.setItem('itqan_v4_logs', JSON.stringify(logs)), [logs]);
+            useEffect(() => localStorage.setItem('itqan_v4_template', template), [template]);
 
-            const showToast = (msg, type = 'success') => {
-                setToast({ msg, type });
-                setTimeout(() => setToast(null), 3000);
-            };
+            const showToast = (msg, type = 'success') => setToast({ msg, type });
 
-            const groups = useMemo(() => [...new Set(students.map(s => s.group))].filter(Boolean), [students]);
+            const groups = useMemo(() => [...new Set(students.map(s => String(s.group).trim()))].filter(Boolean), [students]);
 
             const handleLogin = () => {
                 if (pin === '1234') setRole('supervisor');
                 else if (pin === '0000') setRole('monitor');
-                else alert('الرمز غير صحيح');
+                else alert('رمز الدخول غير صحيح (المشرف: 1234 | المسجل: 0000)');
                 setPin('');
             };
 
-            // Student Management
+            const logout = () => {
+                setRole(null);
+                setPin('');
+                setActiveMonitorGroup(null);
+                setAttendanceBatch({});
+                setEditingStudent(null);
+                setShowAddModal(false);
+                setSelectedSids([]);
+            };
+
+            // معالجة ملف الإكسل باحترافية وتجاهل الصفوف الفارغة تماماً
+            const handleExcelImport = (e) => {
+                const file = e.target.files[0];
+                if (!file) return;
+                const reader = new FileReader();
+                reader.onload = (evt) => {
+                    try {
+                        const wb = XLSX.read(evt.target.result, { type: 'binary' });
+                        const ws = wb.Sheets[wb.SheetNames[0]];
+                        const data = XLSX.utils.sheet_to_json(ws, { defval: "" });
+
+                        if (data.length === 0) {
+                            showToast("الملف فارغ", "error");
+                            return;
+                        }
+
+                        const parsedList = data.map((row, idx) => {
+                            const clean = {};
+                            Object.keys(row).forEach(k => clean[k.trim()] = String(row[k]).trim());
+
+                            // البحث عن اسم الطالب بأكثر من صيغة
+                            const name = clean['الاسم'] || clean['اسم الطالب'] || clean['name'] || clean['Name'] || '';
+                            const phone = formatSaudiPhone(clean['الرقم'] || clean['رقم الجوال'] || clean['phone'] || clean['Phone'] || '');
+                            const group = clean['الحلقة'] || clean['الفصل'] || clean['Group'] || 'عام';
+                            const rawStatus = clean['الحالة'] || clean['status'] || 'مستمر';
+                            const isActive = !(rawStatus.includes('منقطع') || rawStatus.includes('غير') || rawStatus.includes('false'));
+
+                            return {
+                                id: Date.now() + idx,
+                                name: name,
+                                phone: phone,
+                                group: group,
+                                absences: parseInt(clean['غيابات'] || clean['absences'] || 0) || 0,
+                                active: isActive
+                            };
+                        }).filter(s => s.name && s.name.length > 1); // شرط أساسي: استبعاد أي صف لا يحتوي على اسم حقيقي
+
+                        if (parsedList.length === 0) {
+                            showToast("لم يتم العثور على عمود باسم 'الاسم' داخل الملف", "error");
+                            return;
+                        }
+
+                        setStudents(prev => [...prev, ...parsedList]);
+                        showToast(`تم استيراد ${parsedList.length} طالب بنجاح!`);
+                        if (fileInputRef.current) fileInputRef.current.value = "";
+                    } catch (err) {
+                        showToast("حدث خطأ أثناء قراءة ملف Excel", "error");
+                    }
+                };
+                reader.readAsBinaryString(file);
+                e.target.value = '';
+            };
+
+            const downloadSample = () => {
+                const ws = XLSX.utils.json_to_sheet([
+                    { "الاسم": "أحمد محمد", "الرقم": "0501234567", "الحلقة": "الرابع ب", "الحالة": "مستمر", "غيابات": 0 },
+                    { "الاسم": "أمجد المريسي", "الرقم": "0502153365", "الحلقة": "الرابع ب", "الحالة": "مستمر", "غيابات": 0 }
+                ]);
+                const wb = XLSX.utils.book_new();
+                XLSX.utils.book_append_sheet(wb, ws, "الطلاب");
+                XLSX.writeFile(wb, "نموذج_إتقان_للطلاب.xlsx");
+            };
+
+            // إضافة طالب يدوياً
             const handleAddStudent = (e) => {
                 e.preventDefault();
-                if(!newStudent.name || !newStudent.phone || !newStudent.group) {
-                    alert('يرجى ملء كافة الحقول');
-                    return;
-                }
+                if (!newStudent.name.trim()) return;
+
                 const student = {
-                    ...newStudent,
                     id: Date.now(),
+                    name: newStudent.name.trim(),
                     phone: formatSaudiPhone(newStudent.phone),
-                    absences: 0
+                    group: newStudent.group.trim() || 'عام',
+                    absences: 0,
+                    active: newStudent.active
                 };
+
                 setStudents(prev => [...prev, student]);
                 setNewStudent({ name: '', phone: '', group: '', active: true });
                 setShowAddModal(false);
                 showToast("تمت إضافة الطالب بنجاح");
             };
 
+            // حفظ التعديلات
             const handleSaveEdit = (e) => {
                 e.preventDefault();
-                setStudents(prev => prev.map(s => s.id === editingStudent.id ? editingStudent : s));
+                setStudents(prev => prev.map(s => s.id === editingStudent.id ? {
+                    ...editingStudent,
+                    name: editingStudent.name.trim(),
+                    phone: formatSaudiPhone(editingStudent.phone),
+                    group: editingStudent.group.trim(),
+                    absences: parseInt(editingStudent.absences || 0),
+                    active: editingStudent.active === true || editingStudent.active === 'true'
+                } : s));
                 setEditingStudent(null);
                 showToast("تم تحديث بيانات الطالب");
             };
 
-            const deleteStudent = (id) => {
-                if(confirm('هل أنت متأكد من حذف هذا الطالب نهائياً؟')) {
-                    setStudents(prev => prev.filter(s => s.id !== id));
-                    showToast("تم حذف الطالب");
-                }
-            };
-
-            const handleExcelImport = (e) => {
-                const file = e.target.files[0];
-                if (!file) return;
-                const reader = new FileReader();
-                reader.onload = (evt) => {
-                    const wb = XLSX.read(evt.target.result, { type: 'binary' });
-                    const ws = wb.Sheets[wb.SheetNames[0]];
-                    const data = XLSX.utils.sheet_to_json(ws);
-                    
-                    const normalized = data.map((row, idx) => {
-                        const clean = {};
-                        Object.keys(row).forEach(k => clean[k.trim()] = row[k]);
-                        return {
-                            id: Date.now() + idx,
-                            name: String(clean['الاسم'] || clean['Name'] || `طالب ${idx}`).trim(),
-                            phone: formatSaudiPhone(clean['الرقم'] || clean['Phone'] || ''),
-                            group: String(clean['الحلقة'] || clean['Group'] || 'عام').trim(),
-                            absences: parseInt(clean['غيابات'] || 0),
-                            active: !String(clean['الحالة'] || '').includes('منقطع')
-                        };
-                    });
-                    setStudents(prev => [...prev, ...normalized]);
-                    showToast(`تم استيراد ${normalized.length} طالب`);
-                };
-                reader.readAsBinaryString(file);
-                e.target.value = '';
-            };
-
-            // Attendance
+            // تحضير المسجل
             const submitAttendance = () => {
-                const absentees = students
-                    .filter(s => s.group === activeMonitorGroup && attendanceBatch[s.id])
-                    .map(s => s.id);
+                const activeGroupStudents = students.filter(s => String(s.group).trim() === activeMonitorGroup && s.active);
+                const absentees = activeGroupStudents.filter(s => attendanceBatch[s.id]).map(s => s.id);
+
+                if (absentees.length === 0) {
+                    if (!confirm(`لم تحدد أي غائب في "${activeMonitorGroup}". هل تريد إرسال الكشف كـ 'الكل حاضر'؟`)) return;
+                }
 
                 const logEntry = {
                     id: Date.now(),
@@ -170,38 +209,76 @@
                     reviewed: false
                 };
 
-                setStudents(prev => prev.map(s => absentees.includes(s.id) ? { ...s, absences: s.absences + 1 } : s));
+                setStudents(prev => prev.map(s => absentees.includes(s.id) ? { ...s, absences: (s.absences || 0) + 1 } : s));
                 setLogs(prev => [logEntry, ...prev]);
-                showToast("تم إرسال كشف الغياب");
+                showToast("تم اعتماد كشف الغياب وإرساله للمشرف");
                 setActiveMonitorGroup(null);
                 setAttendanceBatch({});
             };
 
+            const deleteStudent = (id) => {
+                if (confirm('هل أنت متأكد من حذف هذا الطالب نهائياً؟')) {
+                    setStudents(prev => prev.filter(s => s.id !== id));
+                    setSelectedSids(prev => prev.filter(sid => sid !== id));
+                    showToast("تم حذف الطالب");
+                }
+            };
+
+            const deleteSelected = () => {
+                if (selectedSids.length === 0) return;
+                if (confirm(`هل أنت متأكد من حذف ${selectedSids.length} طالب محددين؟`)) {
+                    setStudents(prev => prev.filter(s => !selectedSids.includes(s.id)));
+                    setSelectedSids([]);
+                    showToast("تم حذف الطلاب المحددين");
+                }
+            };
+
+            const deleteGroup = () => {
+                if (filterGroup === 'ALL' || !confirm(`تحذير: هل أنت متأكد من حذف جميع طلاب حلقة ${filterGroup}؟`)) return;
+                setStudents(prev => prev.filter(s => String(s.group).trim() !== filterGroup));
+                setFilterGroup('ALL');
+                showToast(`تم حذف طلاب حلقة ${filterGroup}`);
+            };
+
+            const clearAll = () => {
+                if (confirm("تحذير أخير: هل أنت متأكد من مسح جميع بيانات الطلاب المسجلين بالكامل؟")) {
+                    setStudents([]);
+                    setSelectedSids([]);
+                    showToast("تم مسح جميع الطلاب");
+                }
+            };
+
+            const getStatusBadge = (count) => {
+                const c = Number(count) || 0;
+                if (c >= 6) return <span className="bg-red-100 text-red-700 px-2.5 py-0.5 rounded-md text-xs font-bold">خطر (حمراء)</span>;
+                if (c >= 3) return <span className="bg-yellow-100 text-yellow-700 px-2.5 py-0.5 rounded-md text-xs font-bold">تحذير (صفراء)</span>;
+                return <span className="bg-emerald-100 text-emerald-700 px-2.5 py-0.5 rounded-md text-xs font-bold">طبيعي</span>;
+            };
+
             const filteredStudents = useMemo(() => {
-                return filterGroup === 'ALL' ? students : students.filter(s => s.group === filterGroup);
+                return filterGroup === 'ALL' ? students : students.filter(s => String(s.group).trim() === filterGroup);
             }, [students, filterGroup]);
 
-            // --- Views ---
             if (!role) return (
-                <div className="min-h-screen flex items-center justify-center p-6 bg-slate-900">
-                    <div className="max-w-md w-full bg-white rounded-3xl shadow-2xl p-10 animate-fade text-center space-y-8">
+                <div className="min-h-screen flex items-center justify-center p-4 bg-slate-900">
+                    <div className="max-w-md w-full bg-white rounded-3xl shadow-2xl p-8 space-y-6 text-center">
                         <div>
-                            <div className="bg-blue-600 text-white w-16 h-16 rounded-2xl flex items-center justify-center mx-auto mb-4 shadow-lg">
-                                <Icons.User />
+                            <div className="w-16 h-16 bg-blue-600 text-white text-3xl font-bold rounded-2xl flex items-center justify-center mx-auto mb-4 shadow-lg">
+                                ✓
                             </div>
                             <h1 className="text-2xl font-extrabold text-slate-800">نظام إتقان</h1>
-                            <p className="text-slate-400 text-sm mt-1">بوابة متابعة الحلقات والطلاب</p>
+                            <p className="text-slate-400 text-sm mt-1">بوابة متابعة الحضور والغياب</p>
                         </div>
                         <div className="space-y-4">
                             <input 
                                 type="password" 
                                 placeholder="رمز الدخول (PIN)" 
-                                className="w-full p-4 bg-slate-50 border-2 border-slate-100 rounded-2xl text-center text-2xl tracking-widest outline-none focus:border-blue-500 transition-all"
+                                className="w-full p-4 bg-slate-50 border-2 border-slate-200 rounded-2xl text-center text-2xl tracking-widest outline-none focus:border-blue-600 transition-all"
                                 value={pin}
                                 onChange={e => setPin(e.target.value)}
                                 onKeyDown={e => e.key === 'Enter' && handleLogin()}
                             />
-                            <button onClick={handleLogin} className="w-full bg-blue-600 hover:bg-blue-700 text-white py-4 rounded-2xl font-bold shadow-lg transition-transform active:scale-95">
+                            <button onClick={handleLogin} className="w-full bg-blue-600 hover:bg-blue-700 text-white p-4 rounded-2xl font-bold text-lg shadow-lg transition-transform active:scale-95">
                                 تسجيل الدخول
                             </button>
                         </div>
@@ -210,75 +287,96 @@
             );
 
             return (
-                <div className="min-h-screen">
-                    <header className="sticky top-0 z-40 glass border-b border-slate-200 px-6 py-4 flex justify-between items-center shadow-sm">
+                <div className="min-h-screen pb-24 max-w-5xl mx-auto">
+                    <header className="sticky top-0 z-30 glass border-b border-slate-200 px-6 py-4 flex justify-between items-center shadow-sm">
                         <div className="flex items-center gap-3">
-                            <div className="bg-blue-600 text-white p-2 rounded-lg"><Icons.User /></div>
-                            <h2 className="font-bold text-slate-800 text-lg hidden md:block">لوحة تحكم إتقان</h2>
+                            <span className="bg-blue-600 text-white px-3 py-1.5 rounded-xl font-bold text-sm">نظام إتقان</span>
+                            <span className="font-bold text-slate-700 text-base">{role === 'supervisor' ? 'لوحة تحكم المشرف' : 'بوابة مسجل الغياب'}</span>
                         </div>
-                        <button onClick={() => setRole(null)} className="text-sm font-bold text-red-500 hover:bg-red-50 px-4 py-2 rounded-xl transition-colors">
+                        <button onClick={logout} className="text-xs font-bold text-red-500 hover:bg-red-50 px-3 py-2 rounded-xl transition-colors">
                             تسجيل الخروج
                         </button>
                     </header>
 
-                    <main className="max-w-5xl mx-auto p-4 md:p-6 space-y-6">
+                    <main className="p-4 md:p-6">
                         {role === 'monitor' ? (
-                            /* MONITOR ROLE */
-                            <div className="animate-fade space-y-6">
+                            /* واجهة مسجل الغياب */
+                            <div className="space-y-6">
                                 {!activeMonitorGroup ? (
-                                    <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-                                        {groups.map(g => (
-                                            <button key={g} onClick={() => setActiveMonitorGroup(g)} className="bg-white p-6 rounded-3xl shadow-sm border border-slate-100 hover:border-blue-500 hover:shadow-md text-right group transition-all">
-                                                <div className="flex justify-between items-start">
-                                                    <h3 className="text-xl font-bold text-slate-800">{g}</h3>
-                                                    <div className="bg-blue-50 text-blue-600 p-2 rounded-xl group-hover:bg-blue-600 group-hover:text-white transition-colors">
-                                                        <Icons.Plus />
+                                    <div className="space-y-4">
+                                        <div className="bg-blue-50 p-5 rounded-2xl border border-blue-100 flex justify-between items-center">
+                                            <div>
+                                                <h2 className="font-bold text-blue-900 text-lg">قائمة الحلقات / الفصول</h2>
+                                                <p className="text-xs text-blue-600 mt-1">اضغط على الحلقة لتسجيل غياب طلابها اليوم</p>
+                                            </div>
+                                            <span className="bg-blue-600 text-white text-xs font-bold px-3 py-1.5 rounded-xl">{groups.length} حلقات</span>
+                                        </div>
+
+                                        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+                                            {groups.map(g => {
+                                                const activeCount = students.filter(s => String(s.group).trim() === g && s.active).length;
+                                                return (
+                                                    <div 
+                                                        key={g} 
+                                                        onClick={() => { setActiveMonitorGroup(g); setAttendanceBatch({}); }}
+                                                        className="bg-white p-5 rounded-3xl border border-slate-100 hover:border-blue-400 hover:shadow-md cursor-pointer flex justify-between items-center transition-all group"
+                                                    >
+                                                        <div>
+                                                            <h3 className="font-bold text-slate-800 text-lg">{g}</h3>
+                                                            <p className="text-xs text-slate-400 mt-1">{activeCount} طالب نشط</p>
+                                                        </div>
+                                                        <span className="text-blue-600 font-bold text-xl group-hover:translate-x-1 transition-transform">←</span>
                                                     </div>
-                                                </div>
-                                                <p className="text-slate-400 mt-2 text-sm">{students.filter(s => s.group === g && s.active).length} طالب نشط</p>
-                                            </button>
-                                        ))}
-                                        {groups.length === 0 && <div className="col-span-full py-20 text-center text-slate-400">لا توجد حلقات نشطة</div>}
+                                                );
+                                            })}
+                                        </div>
+                                        {groups.length === 0 && <div className="text-center py-20 bg-white rounded-3xl border border-dashed text-slate-400 font-bold">لا توجد حلقات مسجلة حالياً</div>}
                                     </div>
                                 ) : (
                                     <div className="space-y-4 max-w-2xl mx-auto">
-                                        <div className="flex items-center justify-between bg-white p-4 rounded-2xl shadow-sm border border-slate-100">
-                                            <button onClick={() => setActiveMonitorGroup(null)} className="text-slate-400 font-bold hover:text-slate-600 text-sm">إلغاء</button>
-                                            <h2 className="font-bold text-lg">{activeMonitorGroup}</h2>
-                                            <div className="w-10"></div>
+                                        <div className="flex items-center justify-between bg-white p-4 rounded-2xl border border-slate-100 shadow-sm">
+                                            <button onClick={() => setActiveMonitorGroup(null)} className="text-xs font-bold text-slate-600 hover:text-blue-600 bg-slate-100 px-3 py-2 rounded-xl">
+                                                → رجوع للحلقات
+                                            </button>
+                                            <h2 className="font-bold text-lg text-slate-800">{activeMonitorGroup}</h2>
+                                            <span className="text-xs text-red-500 font-bold">{Object.values(attendanceBatch).filter(Boolean).length} غائب محدد</span>
                                         </div>
-                                        <div className="bg-white rounded-3xl shadow-sm border border-slate-100 overflow-hidden">
-                                            {students.filter(s => s.group === activeMonitorGroup && s.active).map(s => (
+
+                                        <div className="bg-white rounded-3xl shadow-sm border border-slate-100 overflow-hidden divide-y divide-slate-50">
+                                            {students.filter(s => String(s.group).trim() === activeMonitorGroup && s.active).map(s => (
                                                 <div 
                                                     key={s.id} 
                                                     onClick={() => setAttendanceBatch(prev => ({...prev, [s.id]: !prev[s.id]}))}
-                                                    className={`p-5 flex justify-between items-center cursor-pointer border-b last:border-0 transition-all ${attendanceBatch[s.id] ? 'bg-red-50' : 'hover:bg-slate-50'}`}
+                                                    className={`p-4 flex justify-between items-center cursor-pointer transition-colors ${attendanceBatch[s.id] ? 'bg-red-50' : 'hover:bg-slate-50/60'}`}
                                                 >
-                                                    <span className={`font-bold ${attendanceBatch[s.id] ? 'text-red-700' : 'text-slate-700'}`}>{s.name}</span>
-                                                    <div className={`w-7 h-7 rounded-full border-2 flex items-center justify-center ${attendanceBatch[s.id] ? 'bg-red-500 border-red-500 text-white' : 'border-slate-200'}`}>
-                                                        {attendanceBatch[s.id] && <Icons.Check />}
+                                                    <div>
+                                                        <span className={`font-bold text-base ${attendanceBatch[s.id] ? 'text-red-700' : 'text-slate-800'}`}>{s.name}</span>
+                                                        <span className="text-xs text-slate-400 block mt-0.5">الغيابات السابقة: {s.absences || 0}</span>
+                                                    </div>
+                                                    <div className={`w-8 h-8 rounded-full border-2 flex items-center justify-center font-bold text-xs transition-colors ${attendanceBatch[s.id] ? 'bg-red-500 border-red-500 text-white' : 'border-slate-200'}`}>
+                                                        {attendanceBatch[s.id] && '✕'}
                                                     </div>
                                                 </div>
                                             ))}
                                         </div>
-                                        <button onClick={submitAttendance} className="w-full bg-green-600 text-white py-5 rounded-2xl font-bold shadow-xl flex items-center justify-center gap-3 active:scale-95 transition-all">
-                                            <Icons.Check /> اعتماد وإرسال الكشف
+
+                                        <button onClick={submitAttendance} className="w-full bg-emerald-600 hover:bg-emerald-700 text-white py-4 rounded-2xl font-bold shadow-lg active:scale-95 transition-all">
+                                            اعتماد وإرسال كشف الغياب ✓
                                         </button>
                                     </div>
                                 )}
                             </div>
                         ) : (
-                            /* SUPERVISOR ROLE */
-                            <div className="animate-fade space-y-6">
-                                <div className="flex bg-white p-1.5 rounded-2xl shadow-sm border border-slate-100">
+                            /* واجهة المشرف */
+                            <div className="space-y-6">
+                                <div className="flex bg-white p-1.5 rounded-2xl border border-slate-100 shadow-sm">
                                     {['inbox', 'students', 'settings'].map(t => (
                                         <button 
                                             key={t}
                                             onClick={() => setView(t)}
-                                            className={`flex-1 py-3 rounded-xl font-bold text-sm flex items-center justify-center gap-2 transition-all ${view === t ? 'bg-blue-600 text-white shadow-md' : 'text-slate-500 hover:bg-slate-50'}`}
+                                            className={`flex-1 py-3 rounded-xl font-bold text-sm transition-all ${view === t ? 'bg-blue-600 text-white shadow-md' : 'text-slate-500 hover:bg-slate-50'}`}
                                         >
-                                            {t === 'inbox' ? <Icons.Inbox /> : t === 'students' ? <Icons.User /> : <Icons.Settings />}
-                                            {t === 'inbox' ? 'الوارد' : t === 'students' ? 'الطلاب' : 'الإعدادات'}
+                                            {t === 'inbox' ? 'الوارد' : t === 'students' ? 'الطلاب والحلقات' : 'الإعدادات'}
                                         </button>
                                     ))}
                                 </div>
@@ -286,22 +384,23 @@
                                 {view === 'inbox' && (
                                     <div className="space-y-4">
                                         {logs.map(log => (
-                                            <div key={log.id} className={`bg-white rounded-3xl border transition-all ${log.reviewed ? 'opacity-60' : 'border-blue-100 shadow-sm'}`}>
-                                                <div className="p-5 border-b border-slate-100 flex justify-between items-center bg-slate-50/50 rounded-t-3xl">
+                                            <div key={log.id} className={`bg-white rounded-3xl border transition-all ${log.reviewed ? 'opacity-60 bg-slate-50 border-slate-200' : 'border-blue-100 shadow-sm'}`}>
+                                                <div className="p-4 border-b border-slate-100 flex justify-between items-center bg-slate-50/50 rounded-t-3xl">
                                                     <div className="flex items-center gap-3">
-                                                        <span className="bg-blue-100 text-blue-700 px-4 py-1 rounded-full text-xs font-bold">{log.group}</span>
-                                                        <span className="text-[10px] text-slate-400 font-bold">{log.timestamp}</span>
+                                                        <span className="bg-blue-100 text-blue-700 px-3 py-1 rounded-full text-xs font-bold">{log.group}</span>
+                                                        <span className="text-xs text-slate-400">{log.timestamp}</span>
                                                     </div>
                                                     <button 
                                                         onClick={() => setLogs(prev => prev.map(l => l.id === log.id ? {...l, reviewed: !l.reviewed} : l))}
-                                                        className={`text-xs px-4 py-2 rounded-xl font-bold ${log.reviewed ? 'bg-slate-200 text-slate-500' : 'bg-green-100 text-green-700'}`}
+                                                        className={`text-xs px-3 py-1.5 rounded-xl font-bold transition-colors ${log.reviewed ? 'bg-slate-200 text-slate-600' : 'bg-emerald-100 text-emerald-700'}`}
                                                     >
-                                                        {log.reviewed ? 'مكتمل' : 'جديد'}
+                                                        {log.reviewed ? 'تمت المعالجة' : 'تحديد كـ معالج'}
                                                     </button>
                                                 </div>
-                                                <div className="p-5 space-y-3">
+
+                                                <div className="p-4 space-y-3">
                                                     {log.absentees.length === 0 ? (
-                                                        <div className="text-center text-green-600 text-sm font-bold">✓ لا يوجد غيابات</div>
+                                                        <div className="text-center text-emerald-600 text-sm font-bold py-2">✓ لا يوجد غياب في هذه الجلسة (الكل حاضر)</div>
                                                     ) : log.absentees.map(sid => {
                                                         const s = students.find(st => st.id === sid);
                                                         if (!s) return null;
@@ -309,26 +408,26 @@
                                                             .replace(/{student_name}/g, s.name)
                                                             .replace(/{date}/g, log.timestamp.split(',')[0])
                                                             .replace(/{absence_count}/g, s.absences);
-                                                        
+
                                                         return (
                                                             <div key={sid} className="flex flex-col md:flex-row md:items-center justify-between gap-4 bg-slate-50 p-4 rounded-2xl border border-slate-100">
                                                                 <div>
-                                                                    <div className="font-bold text-slate-800">{s.name}</div>
-                                                                    <div className="text-xs text-slate-400 mt-1">الغيابات: {s.absences} | {s.phone}</div>
+                                                                    <div className="font-bold text-slate-800 text-sm">{s.name}</div>
+                                                                    <div className="text-xs text-slate-500 mt-1" dir="ltr">{s.phone} | غياباته: {s.absences}</div>
                                                                 </div>
                                                                 <div className="flex gap-2">
                                                                     <button 
-                                                                        onClick={() => { navigator.clipboard.writeText(msg); showToast("تم نسخ النص"); }}
-                                                                        className="flex-1 md:flex-none flex items-center justify-center gap-2 bg-white border border-slate-200 text-slate-600 px-4 py-2 rounded-xl text-xs font-bold hover:bg-slate-100"
+                                                                        onClick={() => { navigator.clipboard.writeText(msg); showToast("تم نسخ نص الرسالة"); }}
+                                                                        className="flex-1 md:flex-none bg-white border border-slate-200 text-slate-700 px-4 py-2 rounded-xl text-xs font-bold hover:bg-slate-100"
                                                                     >
-                                                                        <Icons.Copy /> نسخ
+                                                                        📋 نسخ
                                                                     </button>
                                                                     <a 
                                                                         href={`https://wa.me/${s.phone}?text=${encodeURIComponent(msg)}`} 
                                                                         target="_blank"
-                                                                        className="flex-1 md:flex-none flex items-center justify-center gap-2 bg-green-500 text-white px-4 py-2 rounded-xl text-xs font-bold shadow-sm"
+                                                                        className="flex-1 md:flex-none bg-emerald-500 text-white px-4 py-2 rounded-xl text-xs font-bold hover:bg-emerald-600 flex items-center justify-center gap-1 shadow-sm"
                                                                     >
-                                                                        <Icons.Whatsapp /> واتساب
+                                                                        واتساب 💬
                                                                     </a>
                                                                 </div>
                                                             </div>
@@ -337,74 +436,126 @@
                                                 </div>
                                             </div>
                                         ))}
-                                        {logs.length === 0 && <div className="py-20 text-center text-slate-400 font-bold">لا يوجد تقارير غياب حالياً</div>}
+                                        {logs.length === 0 && <div className="py-20 text-center text-slate-400 font-bold">لا توجد تقارير غياب واردة حتى الآن</div>}
                                     </div>
                                 )}
 
                                 {view === 'students' && (
                                     <div className="space-y-6">
-                                        <div className="flex flex-col md:flex-row gap-4 items-stretch md:items-center justify-between">
-                                            <div className="flex gap-2">
-                                                <button onClick={() => setShowAddModal(true)} className="flex-1 bg-blue-600 text-white px-5 py-3 rounded-2xl font-bold flex items-center justify-center gap-2 shadow-lg">
-                                                    <Icons.Plus /> إضافة طالب يدوياً
-                                                </button>
-                                                <div className="relative flex items-center justify-center bg-slate-100 text-slate-600 px-5 py-3 rounded-2xl font-bold cursor-pointer hover:bg-slate-200">
-                                                    <Icons.Excel />
-                                                    <span className="mr-2">استيراد Excel</span>
-                                                    <input type="file" accept=".xlsx,.xls,.csv" onChange={handleExcelImport} className="absolute inset-0 opacity-0 cursor-pointer" />
-                                                </div>
+                                        {/* أدوات الإضافة واستيراد الإكسل */}
+                                        <div className="flex flex-wrap gap-3 items-center justify-between bg-white p-5 rounded-3xl border border-slate-100 shadow-sm">
+                                            <div>
+                                                <h3 className="font-bold text-slate-800 text-base">إدارة الطلاب والحلقات</h3>
+                                                <p className="text-xs text-slate-400 mt-0.5">يمكنك إضافة الطلاب يدوياً أو استيرادهم من ملف Excel</p>
                                             </div>
-                                            <select 
-                                                value={filterGroup} 
-                                                onChange={e => setFilterGroup(e.target.value)}
-                                                className="bg-white border border-slate-200 rounded-2xl px-5 py-3 text-sm font-bold shadow-sm outline-none"
-                                            >
-                                                <option value="ALL">جميع الطلاب ({students.length})</option>
-                                                {groups.map(g => <option key={g} value={g}>{g}</option>)}
-                                            </select>
+                                            <div className="flex flex-wrap gap-2">
+                                                <button onClick={() => setShowAddModal(true)} className="bg-blue-600 hover:bg-blue-700 text-white px-4 py-2.5 rounded-xl font-bold text-xs shadow-md">
+                                                    + إضافة طالب يدوياً
+                                                </button>
+                                                <div className="relative inline-block">
+                                                    <input type="file" ref={fileInputRef} accept=".xlsx,.xls,.csv" onChange={handleExcelImport} className="hidden" id="excel-input" />
+                                                    <label htmlFor="excel-input" className="bg-slate-100 hover:bg-slate-200 text-slate-700 px-4 py-2.5 rounded-xl font-bold text-xs cursor-pointer inline-block">
+                                                        📊 استيراد Excel
+                                                    </label>
+                                                </div>
+                                                <button onClick={downloadSample} className="bg-slate-50 hover:bg-slate-100 text-slate-600 border border-slate-200 px-3 py-2.5 rounded-xl font-bold text-xs">
+                                                    📥 نموذج Excel
+                                                </button>
+                                            </div>
                                         </div>
 
+                                        {/* جدول الطلاب وخيارات التصفية والحذف */}
                                         <div className="bg-white rounded-3xl shadow-sm border border-slate-100 overflow-hidden">
+                                            <div className="p-4 border-b border-slate-100 flex flex-wrap gap-3 items-center justify-between bg-slate-50/50">
+                                                <div className="flex items-center gap-2">
+                                                    <span className="text-xs font-bold text-slate-600">الحلقة:</span>
+                                                    <select 
+                                                        value={filterGroup} 
+                                                        onChange={e => setFilterGroup(e.target.value)}
+                                                        className="bg-white border border-slate-200 rounded-xl px-3 py-1.5 text-xs font-bold outline-none"
+                                                    >
+                                                        <option value="ALL">جميع الحلقات ({students.length})</option>
+                                                        {groups.map(g => <option key={g} value={g}>{g}</option>)}
+                                                    </select>
+                                                    {filterGroup !== 'ALL' && (
+                                                        <button onClick={deleteGroup} className="text-xs bg-red-50 text-red-600 font-bold px-3 py-1.5 rounded-xl hover:bg-red-100">
+                                                            حذف طلاب ({filterGroup})
+                                                        </button>
+                                                    )}
+                                                </div>
+
+                                                <div className="flex items-center gap-2">
+                                                    {selectedSids.length > 0 && (
+                                                        <button onClick={deleteSelected} className="bg-red-600 text-white px-3 py-1.5 rounded-xl text-xs font-bold shadow-sm">
+                                                            حذف ({selectedSids.length}) محددين
+                                                        </button>
+                                                    )}
+                                                    {students.length > 0 && (
+                                                        <button onClick={clearAll} className="text-xs text-red-500 hover:text-red-700 font-bold px-2 py-1">
+                                                            مسح شامل للكل
+                                                        </button>
+                                                    )}
+                                                </div>
+                                            </div>
+
                                             <div className="overflow-x-auto">
                                                 <table className="w-full text-right text-sm">
-                                                    <thead className="bg-slate-50 text-slate-500">
+                                                    <thead className="bg-slate-50 text-slate-500 text-xs">
                                                         <tr className="border-b border-slate-100">
+                                                            <th className="p-4 w-10">
+                                                                <input 
+                                                                    type="checkbox" 
+                                                                    checked={filteredStudents.length > 0 && selectedSids.length === filteredStudents.length}
+                                                                    onChange={e => setSelectedSids(e.target.checked ? filteredStudents.map(s => s.id) : [])}
+                                                                />
+                                                            </th>
                                                             <th className="p-4 font-bold">اسم الطالب</th>
                                                             <th className="p-4 font-bold">الحلقة</th>
                                                             <th className="p-4 font-bold">الغيابات</th>
                                                             <th className="p-4 font-bold">الحالة</th>
-                                                            <th className="p-4 font-bold text-center">إجراءات</th>
+                                                            <th className="p-4 font-bold text-center">الخيارات</th>
                                                         </tr>
                                                     </thead>
                                                     <tbody className="divide-y divide-slate-50">
                                                         {filteredStudents.map(s => (
                                                             <tr key={s.id} className={`hover:bg-slate-50/50 ${!s.active ? 'opacity-60 bg-slate-50' : ''}`}>
                                                                 <td className="p-4">
-                                                                    <div className="font-bold text-slate-800">{s.name}</div>
-                                                                    <div className="text-[10px] text-slate-400 font-medium">{s.phone}</div>
+                                                                    <input 
+                                                                        type="checkbox" 
+                                                                        checked={selectedSids.includes(s.id)}
+                                                                        onChange={() => setSelectedSids(prev => prev.includes(s.id) ? prev.filter(i => i !== s.id) : [...prev, s.id])}
+                                                                    />
                                                                 </td>
-                                                                <td className="p-4 text-slate-500">{s.group}</td>
                                                                 <td className="p-4">
-                                                                    <div className="flex items-center gap-2">
-                                                                        <span className="font-extrabold">{s.absences}</span>
-                                                                        <div className={`w-2 h-2 rounded-full ${s.absences >= 6 ? 'bg-red-500' : s.absences >= 3 ? 'bg-yellow-400' : 'bg-green-500'}`} />
+                                                                    <div className="font-bold text-slate-800">{s.name}</div>
+                                                                    <div className="text-xs text-slate-400 font-medium" dir="ltr">{s.phone}</div>
+                                                                </td>
+                                                                <td className="p-4 text-slate-600 font-medium">{s.group}</td>
+                                                                <td className="p-4">
+                                                                    <div className="flex flex-col gap-1 items-start">
+                                                                        <span className="font-bold text-xs">{s.absences || 0} غيابات</span>
+                                                                        {getStatusBadge(s.absences)}
                                                                     </div>
                                                                 </td>
                                                                 <td className="p-4">
-                                                                    <span className={`text-[10px] px-2 py-1 rounded-lg font-bold ${s.active ? 'bg-green-50 text-green-600' : 'bg-slate-200 text-slate-500'}`}>
-                                                                        {s.active ? 'نشط' : 'منقطع'}
+                                                                    <span className={`text-[10px] px-2.5 py-1 rounded-md font-bold ${s.active ? 'bg-emerald-50 text-emerald-600' : 'bg-slate-200 text-slate-600'}`}>
+                                                                        {s.active ? 'مستمر' : 'منقطع'}
                                                                     </span>
                                                                 </td>
-                                                                <td className="p-4">
+                                                                <td className="p-4 text-center">
                                                                     <div className="flex justify-center gap-2">
-                                                                        <button onClick={() => setEditingStudent({...s})} className="p-2 text-blue-600 hover:bg-blue-50 rounded-xl transition-all"><Icons.Edit /></button>
-                                                                        <button onClick={() => deleteStudent(s.id)} className="p-2 text-red-400 hover:bg-red-50 rounded-xl transition-all"><Icons.Trash /></button>
+                                                                        <button onClick={() => setEditingStudent({...s, active: s.active !== false})} className="bg-blue-50 text-blue-600 hover:bg-blue-600 hover:text-white px-3 py-1.5 rounded-xl font-bold text-xs transition-colors">
+                                                                            تعديل ✏️
+                                                                        </button>
+                                                                        <button onClick={() => deleteStudent(s.id)} className="bg-red-50 text-red-600 hover:bg-red-600 hover:text-white px-3 py-1.5 rounded-xl font-bold text-xs transition-colors">
+                                                                            حذف 🗑️
+                                                                        </button>
                                                                     </div>
                                                                 </td>
                                                             </tr>
                                                         ))}
                                                         {filteredStudents.length === 0 && (
-                                                            <tr><td colSpan="5" className="p-10 text-center text-slate-400">لا يوجد طلاب</td></tr>
+                                                            <tr><td colSpan="6" className="p-10 text-center text-slate-400 font-bold">لا يوجد طلاب مسجلين في هذه القائمة</td></tr>
                                                         )}
                                                     </tbody>
                                                 </table>
@@ -414,20 +565,15 @@
                                 )}
 
                                 {view === 'settings' && (
-                                    <div className="bg-white p-8 rounded-3xl shadow-sm border border-slate-100 space-y-6">
-                                        <h3 className="font-bold text-slate-800 text-lg">إعدادات رسالة الغياب</h3>
-                                        <p className="text-sm text-slate-400">تحكم في محتوى رسالة الواتساب التلقائية:</p>
-                                        <div className="flex flex-wrap gap-2 text-[10px]">
-                                            {['{student_name}', '{date}', '{absence_count}'].map(tag => (
-                                                <span key={tag} className="bg-slate-100 text-slate-500 px-2 py-1 rounded-md border border-slate-200 font-mono">{tag}</span>
-                                            ))}
-                                        </div>
+                                    <div className="bg-white p-6 rounded-3xl border border-slate-100 space-y-4 shadow-sm">
+                                        <h3 className="font-bold text-slate-800 text-lg">قالب رسالة الغياب التلقائية</h3>
+                                        <p className="text-xs text-slate-400">الكلمات التلقائية المتاحة: {'{student_name}'} ، {'{date}'} ، {'{absence_count}'}</p>
                                         <textarea 
-                                            className="w-full p-5 h-48 bg-slate-50 border border-slate-200 rounded-2xl outline-none focus:border-blue-500 leading-relaxed font-medium text-sm"
+                                            className="w-full p-4 h-40 bg-slate-50 border border-slate-200 rounded-2xl outline-none focus:border-blue-600 text-sm leading-relaxed"
                                             value={template}
                                             onChange={e => setTemplate(e.target.value)}
                                         />
-                                        <button onClick={() => showToast("تم حفظ التعديلات")} className="bg-blue-600 text-white px-8 py-4 rounded-2xl font-bold shadow-lg hover:bg-blue-700 transition-all">
+                                        <button onClick={() => showToast("تم حفظ قالب الرسالة")} className="bg-blue-600 text-white px-6 py-3 rounded-2xl font-bold text-xs shadow-md hover:bg-blue-700">
                                             حفظ الإعدادات
                                         </button>
                                     </div>
@@ -436,95 +582,77 @@
                         )}
                     </main>
 
-                    {/* ADD MODAL */}
+                    {/* نافذة إضافة طالب يدوياً */}
                     {showAddModal && (
                         <div className="fixed inset-0 z-50 flex items-center justify-center p-4 modal-overlay">
-                            <form onSubmit={handleAddStudent} className="bg-white w-full max-w-md rounded-3xl shadow-2xl p-8 animate-fade space-y-5">
-                                <h3 className="text-xl font-bold text-slate-800 border-b pb-4">إضافة طالب جديد</h3>
-                                <div className="space-y-4">
+                            <form onSubmit={handleAddStudent} className="bg-white w-full max-w-md rounded-3xl shadow-2xl p-6 space-y-4">
+                                <h3 className="text-lg font-bold text-slate-800 border-b pb-3">إضافة طالب جديد</h3>
+                                <div>
+                                    <label className="text-xs font-bold text-slate-600 block mb-1">اسم الطالب الكامل</label>
+                                    <input required className="w-full p-3 bg-slate-50 border rounded-xl outline-none focus:ring-2 focus:ring-blue-500" value={newStudent.name} onChange={e => setNewStudent({...newStudent, name: e.target.value})} placeholder="الاسم الثلاثي" />
+                                </div>
+                                <div>
+                                    <label className="text-xs font-bold text-slate-600 block mb-1">رقم واتساب ولي الأمر</label>
+                                    <input required className="w-full p-3 bg-slate-50 border rounded-xl outline-none focus:ring-2 focus:ring-blue-500" dir="ltr" value={newStudent.phone} onChange={e => setNewStudent({...newStudent, phone: e.target.value})} placeholder="05xxxxxxxx" />
+                                </div>
+                                <div>
+                                    <label className="text-xs font-bold text-slate-600 block mb-1">اسم الحلقة أو الفصل</label>
+                                    <input required className="w-full p-3 bg-slate-50 border rounded-xl outline-none focus:ring-2 focus:ring-blue-500" value={newStudent.group} onChange={e => setNewStudent({...newStudent, group: e.target.value})} placeholder="مثال: الرابع ب" />
+                                </div>
+                                <div>
+                                    <label className="text-xs font-bold text-slate-600 block mb-1">حالة الطالب</label>
+                                    <select className="w-full p-3 bg-slate-50 border rounded-xl font-bold outline-none" value={newStudent.active ? "true" : "false"} onChange={e => setNewStudent({...newStudent, active: e.target.value === 'true'})}>
+                                        <option value="true">مستمر (نشط)</option>
+                                        <option value="false">منقطع / غير فعال</option>
+                                    </select>
+                                </div>
+                                <div className="flex gap-2 pt-2">
+                                    <button type="submit" className="flex-1 bg-blue-600 text-white font-bold py-3 rounded-xl shadow-md">إضافة الطالب</button>
+                                    <button type="button" onClick={() => setShowAddModal(false)} className="px-5 bg-slate-100 font-bold rounded-xl text-slate-600">إلغاء</button>
+                                </div>
+                            </form>
+                        </div>
+                    )}
+
+                    {/* نافذة تعديل بيانات الطالب */}
+                    {editingStudent && (
+                        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 modal-overlay">
+                            <form onSubmit={handleSaveEdit} className="bg-white w-full max-w-md rounded-3xl shadow-2xl p-6 space-y-4">
+                                <h3 className="text-lg font-bold text-slate-800 border-b pb-3">تعديل بيانات الطالب</h3>
+                                <div>
+                                    <label className="text-xs font-bold text-slate-600 block mb-1">اسم الطالب</label>
+                                    <input required className="w-full p-3 bg-slate-50 border rounded-xl outline-none focus:ring-2 focus:ring-blue-500" value={editingStudent.name} onChange={e => setEditingStudent({...editingStudent, name: e.target.value})} />
+                                </div>
+                                <div>
+                                    <label className="text-xs font-bold text-slate-600 block mb-1">رقم الجوال</label>
+                                    <input required className="w-full p-3 bg-slate-50 border rounded-xl outline-none focus:ring-2 focus:ring-blue-500" dir="ltr" value={editingStudent.phone} onChange={e => setEditingStudent({...editingStudent, phone: e.target.value})} />
+                                </div>
+                                <div>
+                                    <label className="text-xs font-bold text-slate-600 block mb-1">الحلقة</label>
+                                    <input required className="w-full p-3 bg-slate-50 border rounded-xl outline-none focus:ring-2 focus:ring-blue-500" value={editingStudent.group} onChange={e => setEditingStudent({...editingStudent, group: e.target.value})} />
+                                </div>
+                                <div className="grid grid-cols-2 gap-2">
                                     <div>
-                                        <label className="text-xs font-bold text-slate-500 mb-1 block">اسم الطالب</label>
-                                        <input required className="w-full p-4 bg-slate-50 border border-slate-100 rounded-2xl outline-none focus:border-blue-500" value={newStudent.name} onChange={e => setNewStudent({...newStudent, name: e.target.value})} placeholder="الاسم الكامل" />
+                                        <label className="text-xs font-bold text-slate-600 block mb-1">الغيابات التراكمية</label>
+                                        <input type="number" min="0" className="w-full p-3 bg-slate-50 border rounded-xl outline-none" value={editingStudent.absences} onChange={e => setEditingStudent({...editingStudent, absences: parseInt(e.target.value || 0)})} />
                                     </div>
                                     <div>
-                                        <label className="text-xs font-bold text-slate-500 mb-1 block">رقم الجوال</label>
-                                        <input required className="w-full p-4 bg-slate-50 border border-slate-100 rounded-2xl outline-none focus:border-blue-500" value={newStudent.phone} onChange={e => setNewStudent({...newStudent, phone: e.target.value})} placeholder="مثال: 050xxxx" />
-                                    </div>
-                                    <div>
-                                        <label className="text-xs font-bold text-slate-500 mb-1 block">الحلقة</label>
-                                        <input required className="w-full p-4 bg-slate-50 border border-slate-100 rounded-2xl outline-none focus:border-blue-500" value={newStudent.group} onChange={e => setNewStudent({...newStudent, group: e.target.value})} placeholder="اسم الحلقة أو الفصل" />
-                                    </div>
-                                    <div>
-                                        <label className="text-xs font-bold text-slate-500 mb-1 block">الحالة</label>
-                                        <select className="w-full p-4 bg-slate-50 border border-slate-100 rounded-2xl font-bold" value={newStudent.active ? "true" : "false"} onChange={e => setNewStudent({...newStudent, active: e.target.value === 'true'})}>
-                                            <option value="true">نشط (مستمر)</option>
+                                        <label className="text-xs font-bold text-slate-600 block mb-1">الحالة</label>
+                                        <select className="w-full p-3 bg-slate-50 border rounded-xl font-bold outline-none" value={editingStudent.active ? "true" : "false"} onChange={e => setEditingStudent({...editingStudent, active: e.target.value === 'true'})}>
+                                            <option value="true">مستمر</option>
                                             <option value="false">منقطع</option>
                                         </select>
                                     </div>
                                 </div>
-                                <div className="flex gap-3 pt-4">
-                                    <button type="submit" className="flex-1 bg-blue-600 text-white font-bold py-4 rounded-2xl shadow-lg">حفظ البيانات</button>
-                                    <button type="button" onClick={() => setShowAddModal(false)} className="px-6 bg-slate-100 text-slate-500 font-bold rounded-2xl">إلغاء</button>
+                                <div className="flex gap-2 pt-2">
+                                    <button type="submit" className="flex-1 bg-blue-600 text-white font-bold py-3 rounded-xl shadow-md">حفظ التعديلات</button>
+                                    <button type="button" onClick={() => setEditingStudent(null)} className="px-5 bg-slate-100 font-bold rounded-xl text-slate-600">إلغاء</button>
                                 </div>
                             </form>
                         </div>
                     )}
 
-                    {/* EDIT MODAL */}
-                    {editingStudent && (
-                        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 modal-overlay">
-                            <form onSubmit={handleSaveEdit} className="bg-white w-full max-w-md rounded-3xl shadow-2xl p-8 animate-fade space-y-5">
-                                <h3 className="text-xl font-bold text-slate-800 border-b pb-4">تعديل بيانات الطالب</h3>
-                                <div className="space-y-4">
-                                    <div>
-                                        <label className="text-xs font-bold text-slate-500 mb-1 block">اسم الطالب</label>
-                                        <input required className="w-full p-4 bg-slate-50 border border-slate-100 rounded-2xl outline-none focus:border-blue-500" value={editingStudent.name} onChange={e => setEditingStudent({...editingStudent, name: e.target.value})} />
-                                    </div>
-                                    <div className="grid grid-cols-2 gap-4">
-                                        <div>
-                                            <label className="text-xs font-bold text-slate-500 mb-1 block">الجوال</label>
-                                            <input required className="w-full p-4 bg-slate-50 border border-slate-100 rounded-2xl outline-none focus:border-blue-500" value={editingStudent.phone} onChange={e => setEditingStudent({...editingStudent, phone: formatSaudiPhone(e.target.value)})} />
-                                        </div>
-                                        <div>
-                                            <label className="text-xs font-bold text-slate-500 mb-1 block">الحلقة</label>
-                                            <input required className="w-full p-4 bg-slate-50 border border-slate-100 rounded-2xl outline-none focus:border-blue-500" value={editingStudent.group} onChange={e => setEditingStudent({...editingStudent, group: e.target.value})} />
-                                        </div>
-                                    </div>
-                                    <div className="grid grid-cols-2 gap-4">
-                                        <div>
-                                            <label className="text-xs font-bold text-slate-500 mb-1 block">غيابات تراكمية</label>
-                                            <input type="number" min="0" className="w-full p-4 bg-slate-50 border border-slate-100 rounded-2xl font-bold" value={editingStudent.absences} onChange={e => setEditingStudent({...editingStudent, absences: parseInt(e.target.value || 0)})} />
-                                        </div>
-                                        <div>
-                                            <label className="text-xs font-bold text-slate-500 mb-1 block">الحالة</label>
-                                            <select 
-                                                className="w-full p-4 bg-slate-50 border border-slate-100 rounded-2xl font-bold" 
-                                                value={editingStudent.active ? "true" : "false"} 
-                                                onChange={e => setEditingStudent({...editingStudent, active: e.target.value === 'true'})}
-                                            >
-                                                <option value="true">نشط (مستمر)</option>
-                                                <option value="false">منقطع</option>
-                                            </select>
-                                        </div>
-                                    </div>
-                                </div>
-                                <div className="flex gap-3 pt-4">
-                                    <button type="submit" className="flex-1 bg-blue-600 text-white font-bold py-4 rounded-2xl shadow-lg">حفظ التغييرات</button>
-                                    <button type="button" onClick={() => setEditingStudent(null)} className="px-6 bg-slate-100 text-slate-500 font-bold rounded-2xl">إلغاء</button>
-                                </div>
-                            </form>
-                        </div>
-                    )}
-
-                    {/* TOAST CONTAINER */}
-                    {toast && (
-                        <div className="fixed bottom-10 left-1/2 -translate-x-1/2 z-50 flex items-center gap-3 bg-slate-800 text-white px-6 py-4 rounded-2xl shadow-2xl animate-fade">
-                            <div className={toast.type === 'success' ? 'text-green-400' : 'text-red-400'}>
-                                <Icons.Check />
-                            </div>
-                            <span className="text-sm font-bold">{toast.msg}</span>
-                        </div>
-                    )}
+                    {toast && <Toast message={toast.msg} type={toast.type} onClose={() => setToast(null)} />}
                 </div>
             );
         };
