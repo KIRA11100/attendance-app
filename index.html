@@ -33,8 +33,7 @@
             return num || '966500000000';
         };
 
-        const initialAbsenceTemplate = "عزيزي ولي أمر الطالب/ة {student_name}، نفيدكم علماً بغياب الطالب اليوم {date}. نرجو التواصل معنا. علماً أن عدد غياباته الإجمالي: {absence_count}";
-        const initialExcusedTemplate = "عزيزي ولي أمر الطالب/ة {student_name}، تم تسجيل استئذان الطالب اليوم {date} بعذر مقبول. شاكرين ومقدرين تواصلكم.";
+        const initialTemplate = "عزيزي ولي أمر الطالب/ة {student_name}، نفيدكم علماً بغياب الطالب اليوم {date}. نرجو التواصل معنا. علماً أن عدد غياباته الإجمالي: {absence_count}";
 
         const Toast = ({ message, type, onClose }) => {
             useEffect(() => {
@@ -53,25 +52,24 @@
             const [role, setRole] = useState(null);
             const [view, setView] = useState('inbox');
             
+            // قراءة البيانات بأمان مع منع التهيئة بقيم تالفة
             const [students, setStudents] = useState(() => {
                 try {
-                    const saved = localStorage.getItem('itqan_v6_students');
+                    const saved = localStorage.getItem('itqan_v5_students');
                     return saved ? JSON.parse(saved) : [];
                 } catch(e) { return []; }
             });
             const [logs, setLogs] = useState(() => {
                 try {
-                    const saved = localStorage.getItem('itqan_v6_logs');
+                    const saved = localStorage.getItem('itqan_v5_logs');
                     return saved ? JSON.parse(saved) : [];
                 } catch(e) { return []; }
             });
-            const [template, setTemplate] = useState(() => localStorage.getItem('itqan_v6_template') || initialAbsenceTemplate);
-            const [excusedTemplate, setExcusedTemplate] = useState(() => localStorage.getItem('itqan_v6_excused_template') || initialExcusedTemplate);
+            const [template, setTemplate] = useState(() => localStorage.getItem('itqan_v5_template') || initialTemplate);
             const [toast, setToast] = useState(null);
 
             const [pin, setPin] = useState('');
             const [activeMonitorGroup, setActiveMonitorGroup] = useState(null);
-            // attendanceBatch[studentId] = 'present' | 'absent' | 'excused'
             const [attendanceBatch, setAttendanceBatch] = useState({});
 
             // Modals
@@ -83,10 +81,17 @@
             const [filterGroup, setFilterGroup] = useState('ALL');
             const fileInputRef = useRef(null);
 
-            useEffect(() => { localStorage.setItem('itqan_v6_students', JSON.stringify(students)); }, [students]);
-            useEffect(() => { localStorage.setItem('itqan_v6_logs', JSON.stringify(logs)); }, [logs]);
-            useEffect(() => { localStorage.setItem('itqan_v6_template', template); }, [template]);
-            useEffect(() => { localStorage.setItem('itqan_v6_excused_template', excusedTemplate); }, [excusedTemplate]);
+            useEffect(() => {
+                localStorage.setItem('itqan_v5_students', JSON.stringify(students));
+            }, [students]);
+
+            useEffect(() => {
+                localStorage.setItem('itqan_v5_logs', JSON.stringify(logs));
+            }, [logs]);
+
+            useEffect(() => {
+                localStorage.setItem('itqan_v5_template', template);
+            }, [template]);
 
             const showToast = (msg, type = 'success') => setToast({ msg, type });
 
@@ -109,6 +114,7 @@
                 setSelectedSids([]);
             };
 
+            // معالجة ملف الإكسل
             const handleExcelImport = (e) => {
                 const file = e.target.files[0];
                 if (!file) return;
@@ -170,6 +176,7 @@
                 XLSX.writeFile(wb, "نموذج_إتقان_للطلاب.xlsx");
             };
 
+            // إضافة طالب يدوياً
             const handleAddStudent = (e) => {
                 e.preventDefault();
                 if (!newStudent.name.trim()) return;
@@ -189,6 +196,7 @@
                 showToast("تمت إضافة الطالب بنجاح");
             };
 
+            // حفظ التعديلات
             const handleSaveEdit = (e) => {
                 e.preventDefault();
                 setStudents(prev => prev.map(s => String(s.id) === String(editingStudent.id) ? {
@@ -203,71 +211,44 @@
                 showToast("تم تحديث بيانات الطالب");
             };
 
-            // اعتماد الكشف من المسجل
+            // اعتماد تحضير المسجل وحفظ الطلاب وسجل الغياب بأمان تام
             const submitAttendance = () => {
                 const currentGroup = String(activeMonitorGroup).trim();
-                const activeGroupStudents = students.filter(s => String(s.group).trim() === currentGroup && s.active);
+                const absentIds = Object.keys(attendanceBatch)
+                    .filter(sid => attendanceBatch[sid] === true)
+                    .map(id => String(id));
 
-                const absentees = [];
-                const excused = [];
-
-                activeGroupStudents.forEach(s => {
-                    const st = attendanceBatch[s.id];
-                    if (st === 'absent') absentees.push(String(s.id));
-                    else if (st === 'excused') excused.push(String(s.id));
-                });
-
-                if (absentees.length === 0 && excused.length === 0) {
-                    if (!confirm(`لم تسجل أي غائب أو مستئذن في "${currentGroup}". هل تريد إرسال الكشف كـ 'الكل حاضر'؟`)) return;
+                if (absentIds.length === 0) {
+                    if (!confirm(`لم تحدد أي غائب في "${currentGroup}". هل تريد إرسال الكشف كـ 'الكل حاضر'؟`)) return;
                 }
 
                 const logEntry = {
                     id: Date.now(),
                     timestamp: new Date().toLocaleString('ar-SA'),
                     group: currentGroup,
-                    absentees,
-                    excused,
+                    absentees: absentIds,
                     reviewed: false
                 };
 
-                // إضافة الغياب فقط للغائبين بدون عذر
+                // تحديث عدد غيابات الطلاب الغائبين مع الحفاظ على كامل قائمة الطلاب
                 setStudents(prevStudents => {
                     return prevStudents.map(student => {
-                        if (absentees.includes(String(student.id))) {
-                            return { ...student, absences: (parseInt(student.absences) || 0) + 1 };
+                        if (absentIds.includes(String(student.id))) {
+                            return {
+                                ...student,
+                                absences: (parseInt(student.absences) || 0) + 1
+                            };
                         }
                         return student;
                     });
                 });
 
+                // إضافة السجل في لوحة المشرف
                 setLogs(prevLogs => [logEntry, ...prevLogs]);
-                showToast("تم اعتماد كشف التحضير وإرساله للمشرف بنجاح");
+
+                showToast("تم اعتماد كشف الغياب وإرساله للمشرف بنجاح");
                 setActiveMonitorGroup(null);
                 setAttendanceBatch({});
-            };
-
-            // تحويل حالة الطالب من غائب إلى مستئذن من قبل المشرف
-            const convertAbsentToExcused = (logId, studentId) => {
-                const sIdStr = String(studentId);
-                // 1. خصم الغياب من رصيد الطالب
-                setStudents(prev => prev.map(s => {
-                    if (String(s.id) === sIdStr) {
-                        return { ...s, absences: Math.max(0, (parseInt(s.absences) || 1) - 1) };
-                    }
-                    return s;
-                }));
-
-                // 2. تحديث سجل المحضر
-                setLogs(prev => prev.map(log => {
-                    if (log.id === logId) {
-                        const newAbs = (log.absentees || []).filter(id => String(id) !== sIdStr);
-                        const newExc = [...(log.excused || []), sIdStr];
-                        return { ...log, absentees: newAbs, excused: newExc };
-                    }
-                    return log;
-                }));
-
-                showToast("تم تحويل الطالب إلى مستئذن وخصم الغياب من رصيده");
             };
 
             const deleteStudent = (id) => {
@@ -295,7 +276,7 @@
             };
 
             const clearAll = () => {
-                if (confirm("تحذير أخير: هل أنت متأكد من مسح جميع بيانات الطلاب بالكامل؟")) {
+                if (confirm("تحذير أخير: هل أنت متأكد من مسح جميع بيانات الطلاب المسجلين بالكامل؟")) {
                     setStudents([]);
                     setSelectedSids([]);
                     showToast("تم مسح جميع الطلاب");
@@ -321,7 +302,7 @@
                                 ✓
                             </div>
                             <h1 className="text-2xl font-extrabold text-slate-800">نظام إتقان</h1>
-                            <p className="text-slate-400 text-sm mt-1">بوابة متابعة الحضور والغياب والاستئذان</p>
+                            <p className="text-slate-400 text-sm mt-1">بوابة متابعة الحضور والغياب</p>
                         </div>
                         <div className="space-y-4">
                             <input 
@@ -361,7 +342,7 @@
                                         <div className="bg-blue-50 p-5 rounded-2xl border border-blue-100 flex justify-between items-center">
                                             <div>
                                                 <h2 className="font-bold text-blue-900 text-lg">قائمة الحلقات / الفصول</h2>
-                                                <p className="text-xs text-blue-600 mt-1">اضغط على الحلقة لتسجيل الحضور والغياب والاستئذان</p>
+                                                <p className="text-xs text-blue-600 mt-1">اضغط على الحلقة لتسجيل غياب طلابها اليوم</p>
                                             </div>
                                             <span className="bg-blue-600 text-white text-xs font-bold px-3 py-1.5 rounded-xl">{groups.length} حلقات</span>
                                         </div>
@@ -393,60 +374,29 @@
                                                 → رجوع للحلقات
                                             </button>
                                             <h2 className="font-bold text-lg text-slate-800">{activeMonitorGroup}</h2>
-                                            <div className="flex gap-2 text-xs font-bold">
-                                                <span className="text-red-500">
-                                                    {Object.values(attendanceBatch).filter(v => v === 'absent').length} غائب
-                                                </span>
-                                                <span className="text-amber-600">
-                                                    {Object.values(attendanceBatch).filter(v => v === 'excused').length} مستئذن
-                                                </span>
-                                            </div>
+                                            <span className="text-xs text-red-500 font-bold">{Object.values(attendanceBatch).filter(Boolean).length} غائب محدد</span>
                                         </div>
 
                                         <div className="bg-white rounded-3xl shadow-sm border border-slate-100 overflow-hidden divide-y divide-slate-50">
-                                            {students.filter(s => String(s.group).trim() === activeMonitorGroup && s.active).map(s => {
-                                                const currentStatus = attendanceBatch[s.id] || 'present';
-                                                return (
-                                                    <div 
-                                                        key={s.id} 
-                                                        className={`p-4 flex flex-wrap justify-between items-center gap-3 transition-colors ${currentStatus === 'absent' ? 'bg-red-50/70' : currentStatus === 'excused' ? 'bg-amber-50/70' : 'hover:bg-slate-50/60'}`}
-                                                    >
-                                                        <div>
-                                                            <span className={`font-bold text-base ${currentStatus === 'absent' ? 'text-red-700' : currentStatus === 'excused' ? 'text-amber-800' : 'text-slate-800'}`}>{s.name}</span>
-                                                            <span className="text-xs text-slate-400 block mt-0.5">الغيابات السابقة: {s.absences || 0}</span>
-                                                        </div>
-
-                                                        {/* خيارات التحضير الثلاثية */}
-                                                        <div className="flex items-center gap-1.5 bg-slate-100 p-1 rounded-xl">
-                                                            <button 
-                                                                type="button"
-                                                                onClick={() => setAttendanceBatch(prev => ({ ...prev, [s.id]: 'present' }))}
-                                                                className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-all ${currentStatus === 'present' ? 'bg-emerald-600 text-white shadow-sm' : 'text-slate-600 hover:text-slate-900'}`}
-                                                            >
-                                                                حاضر ✓
-                                                            </button>
-                                                            <button 
-                                                                type="button"
-                                                                onClick={() => setAttendanceBatch(prev => ({ ...prev, [s.id]: 'excused' }))}
-                                                                className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-all ${currentStatus === 'excused' ? 'bg-amber-500 text-white shadow-sm' : 'text-slate-600 hover:text-slate-900'}`}
-                                                            >
-                                                                مستئذن ⏱️
-                                                            </button>
-                                                            <button 
-                                                                type="button"
-                                                                onClick={() => setAttendanceBatch(prev => ({ ...prev, [s.id]: 'absent' }))}
-                                                                className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-all ${currentStatus === 'absent' ? 'bg-red-600 text-white shadow-sm' : 'text-slate-600 hover:text-slate-900'}`}
-                                                            >
-                                                                غائب ✕
-                                                            </button>
-                                                        </div>
+                                            {students.filter(s => String(s.group).trim() === activeMonitorGroup && s.active).map(s => (
+                                                <div 
+                                                    key={s.id} 
+                                                    onClick={() => setAttendanceBatch(prev => ({...prev, [s.id]: !prev[s.id]}))}
+                                                    className={`p-4 flex justify-between items-center cursor-pointer transition-colors ${attendanceBatch[s.id] ? 'bg-red-50' : 'hover:bg-slate-50/60'}`}
+                                                >
+                                                    <div>
+                                                        <span className={`font-bold text-base ${attendanceBatch[s.id] ? 'text-red-700' : 'text-slate-800'}`}>{s.name}</span>
+                                                        <span className="text-xs text-slate-400 block mt-0.5">الغيابات السابقة: {s.absences || 0}</span>
                                                     </div>
-                                                );
-                                            })}
+                                                    <div className={`w-8 h-8 rounded-full border-2 flex items-center justify-center font-bold text-xs transition-colors ${attendanceBatch[s.id] ? 'bg-red-500 border-red-500 text-white' : 'border-slate-200'}`}>
+                                                        {attendanceBatch[s.id] && '✕'}
+                                                    </div>
+                                                </div>
+                                            ))}
                                         </div>
 
                                         <button onClick={submitAttendance} className="w-full bg-emerald-600 hover:bg-emerald-700 text-white py-4 rounded-2xl font-bold shadow-lg active:scale-95 transition-all">
-                                            اعتماد وإرسال كشف التحضير ✓
+                                            اعتماد وإرسال كشف الغياب ✓
                                         </button>
                                     </div>
                                 )}
@@ -468,117 +418,59 @@
 
                                 {view === 'inbox' && (
                                     <div className="space-y-4">
-                                        {logs.map(log => {
-                                            const absentees = log.absentees || [];
-                                            const excused = log.excused || [];
-                                            const totalIssues = absentees.length + excused.length;
-
-                                            return (
-                                                <div key={log.id} className={`bg-white rounded-3xl border transition-all ${log.reviewed ? 'opacity-60 bg-slate-50 border-slate-200' : 'border-blue-100 shadow-sm'}`}>
-                                                    <div className="p-4 border-b border-slate-100 flex justify-between items-center bg-slate-50/50 rounded-t-3xl">
-                                                        <div className="flex items-center gap-3">
-                                                            <span className="bg-blue-100 text-blue-700 px-3 py-1 rounded-full text-xs font-bold">{log.group}</span>
-                                                            <span className="text-xs text-slate-400">{log.timestamp}</span>
-                                                        </div>
-                                                        <button 
-                                                            onClick={() => setLogs(prev => prev.map(l => l.id === log.id ? {...l, reviewed: !l.reviewed} : l))}
-                                                            className={`text-xs px-3 py-1.5 rounded-xl font-bold transition-colors ${log.reviewed ? 'bg-slate-200 text-slate-600' : 'bg-emerald-100 text-emerald-700'}`}
-                                                        >
-                                                            {log.reviewed ? 'تمت المعالجة' : 'تحديد كـ معالج'}
-                                                        </button>
+                                        {logs.map(log => (
+                                            <div key={log.id} className={`bg-white rounded-3xl border transition-all ${log.reviewed ? 'opacity-60 bg-slate-50 border-slate-200' : 'border-blue-100 shadow-sm'}`}>
+                                                <div className="p-4 border-b border-slate-100 flex justify-between items-center bg-slate-50/50 rounded-t-3xl">
+                                                    <div className="flex items-center gap-3">
+                                                        <span className="bg-blue-100 text-blue-700 px-3 py-1 rounded-full text-xs font-bold">{log.group}</span>
+                                                        <span className="text-xs text-slate-400">{log.timestamp}</span>
                                                     </div>
-
-                                                    <div className="p-4 space-y-3">
-                                                        {totalIssues === 0 ? (
-                                                            <div className="text-center text-emerald-600 text-sm font-bold py-2">✓ لا يوجد غياب أو استئذان في هذه الجلسة (الكل حاضر)</div>
-                                                        ) : (
-                                                            <>
-                                                                {/* قائمة الغائبين */}
-                                                                {absentees.map(sid => {
-                                                                    const s = students.find(st => String(st.id) === String(sid));
-                                                                    if (!s) return null;
-                                                                    const msg = template
-                                                                        .replace(/{student_name}/g, s.name)
-                                                                        .replace(/{date}/g, log.timestamp.split(',')[0])
-                                                                        .replace(/{absence_count}/g, s.absences);
-
-                                                                    return (
-                                                                        <div key={sid} className="flex flex-col md:flex-row md:items-center justify-between gap-3 bg-red-50/50 p-4 rounded-2xl border border-red-100">
-                                                                            <div>
-                                                                                <div className="flex items-center gap-2">
-                                                                                    <span className="font-bold text-slate-800 text-sm">{s.name}</span>
-                                                                                    <span className="bg-red-100 text-red-700 text-[10px] px-2 py-0.5 rounded-full font-bold">غائب</span>
-                                                                                </div>
-                                                                                <div className="text-xs text-slate-500 mt-1" dir="ltr">{s.phone} | إجمالي الغيابات: {s.absences}</div>
-                                                                            </div>
-                                                                            <div className="flex flex-wrap gap-2">
-                                                                                {/* زر التحويل إلى مستئذن */}
-                                                                                <button 
-                                                                                    onClick={() => convertAbsentToExcused(log.id, s.id)}
-                                                                                    className="bg-amber-100 hover:bg-amber-200 text-amber-900 border border-amber-200 px-3 py-1.5 rounded-xl text-xs font-bold transition-colors"
-                                                                                    title="تحويل إلى مستئذن وخصم الغياب"
-                                                                                >
-                                                                                    ⏱️ تحويل لمستئذن
-                                                                                </button>
-                                                                                <button 
-                                                                                    onClick={() => { navigator.clipboard.writeText(msg); showToast("تم نسخ نص رسالة الغياب"); }}
-                                                                                    className="bg-white border border-slate-200 text-slate-700 px-3 py-1.5 rounded-xl text-xs font-bold hover:bg-slate-100"
-                                                                                >
-                                                                                    📋 نسخ
-                                                                                </button>
-                                                                                <a 
-                                                                                    href={`https://wa.me/${s.phone}?text=${encodeURIComponent(msg)}`} 
-                                                                                    target="_blank"
-                                                                                    className="bg-emerald-500 text-white px-3 py-1.5 rounded-xl text-xs font-bold hover:bg-emerald-600 flex items-center gap-1 shadow-sm"
-                                                                                >
-                                                                                    واتساب 💬
-                                                                                </a>
-                                                                            </div>
-                                                                        </div>
-                                                                    );
-                                                                })}
-
-                                                                {/* قائمة المستئذنين */}
-                                                                {excused.map(sid => {
-                                                                    const s = students.find(st => String(st.id) === String(sid));
-                                                                    if (!s) return null;
-                                                                    const msg = excusedTemplate
-                                                                        .replace(/{student_name}/g, s.name)
-                                                                        .replace(/{date}/g, log.timestamp.split(',')[0]);
-
-                                                                    return (
-                                                                        <div key={sid} className="flex flex-col md:flex-row md:items-center justify-between gap-3 bg-amber-50/50 p-4 rounded-2xl border border-amber-200">
-                                                                            <div>
-                                                                                <div className="flex items-center gap-2">
-                                                                                    <span className="font-bold text-slate-800 text-sm">{s.name}</span>
-                                                                                    <span className="bg-amber-100 text-amber-800 text-[10px] px-2 py-0.5 rounded-full font-bold">مستئذن (بعذر)</span>
-                                                                                </div>
-                                                                                <div className="text-xs text-slate-500 mt-1" dir="ltr">{s.phone} | الغيابات: {s.absences}</div>
-                                                                            </div>
-                                                                            <div className="flex gap-2">
-                                                                                <button 
-                                                                                    onClick={() => { navigator.clipboard.writeText(msg); showToast("تم نسخ نص رسالة الاستئذان"); }}
-                                                                                    className="bg-white border border-slate-200 text-slate-700 px-3 py-1.5 rounded-xl text-xs font-bold hover:bg-slate-100"
-                                                                                >
-                                                                                    📋 نسخ
-                                                                                </button>
-                                                                                <a 
-                                                                                    href={`https://wa.me/${s.phone}?text=${encodeURIComponent(msg)}`} 
-                                                                                    target="_blank"
-                                                                                    className="bg-emerald-500 text-white px-3 py-1.5 rounded-xl text-xs font-bold hover:bg-emerald-600 flex items-center gap-1 shadow-sm"
-                                                                                >
-                                                                                    واتساب 💬
-                                                                                </a>
-                                                                            </div>
-                                                                        </div>
-                                                                    );
-                                                                })}
-                                                            </>
-                                                        )}
-                                                    </div>
+                                                    <button 
+                                                        onClick={() => setLogs(prev => prev.map(l => l.id === log.id ? {...l, reviewed: !l.reviewed} : l))}
+                                                        className={`text-xs px-3 py-1.5 rounded-xl font-bold transition-colors ${log.reviewed ? 'bg-slate-200 text-slate-600' : 'bg-emerald-100 text-emerald-700'}`}
+                                                    >
+                                                        {log.reviewed ? 'تمت المعالجة' : 'تحديد كـ معالج'}
+                                                    </button>
                                                 </div>
-                                            );
-                                        })}
+
+                                                <div className="p-4 space-y-3">
+                                                    {log.absentees.length === 0 ? (
+                                                        <div className="text-center text-emerald-600 text-sm font-bold py-2">✓ لا يوجد غياب في هذه الجلسة (الكل حاضر)</div>
+                                                    ) : log.absentees.map(sid => {
+                                                        const s = students.find(st => String(st.id) === String(sid));
+                                                        if (!s) return null;
+                                                        const msg = template
+                                                            .replace(/{student_name}/g, s.name)
+                                                            .replace(/{date}/g, log.timestamp.split(',')[0])
+                                                            .replace(/{absence_count}/g, s.absences);
+
+                                                        return (
+                                                            <div key={sid} className="flex flex-col md:flex-row md:items-center justify-between gap-4 bg-slate-50 p-4 rounded-2xl border border-slate-100">
+                                                                <div>
+                                                                    <div className="font-bold text-slate-800 text-sm">{s.name}</div>
+                                                                    <div className="text-xs text-slate-500 mt-1" dir="ltr">{s.phone} | غياباته: {s.absences}</div>
+                                                                </div>
+                                                                <div className="flex gap-2">
+                                                                    <button 
+                                                                        onClick={() => { navigator.clipboard.writeText(msg); showToast("تم نسخ نص الرسالة"); }}
+                                                                        className="flex-1 md:flex-none bg-white border border-slate-200 text-slate-700 px-4 py-2 rounded-xl text-xs font-bold hover:bg-slate-100"
+                                                                    >
+                                                                        📋 نسخ
+                                                                    </button>
+                                                                    <a 
+                                                                        href={`https://wa.me/${s.phone}?text=${encodeURIComponent(msg)}`} 
+                                                                        target="_blank"
+                                                                        className="flex-1 md:flex-none bg-emerald-500 text-white px-4 py-2 rounded-xl text-xs font-bold hover:bg-emerald-600 flex items-center justify-center gap-1 shadow-sm"
+                                                                    >
+                                                                        واتساب 💬
+                                                                    </a>
+                                                                </div>
+                                                            </div>
+                                                        );
+                                                    })}
+                                                </div>
+                                            </div>
+                                        ))}
                                         {logs.length === 0 && <div className="py-20 text-center text-slate-400 font-bold">لا توجد تقارير غياب واردة حتى الآن</div>}
                                     </div>
                                 )}
@@ -706,28 +598,15 @@
                                 )}
 
                                 {view === 'settings' && (
-                                    <div className="bg-white p-6 rounded-3xl border border-slate-100 space-y-6 shadow-sm">
-                                        <div>
-                                            <h3 className="font-bold text-slate-800 text-lg">قالب رسالة الغياب (بدون عذر)</h3>
-                                            <p className="text-xs text-slate-400 mb-2">المتغيرات المتاحة: {'{student_name}'} ، {'{date}'} ، {'{absence_count}'}</p>
-                                            <textarea 
-                                                className="w-full p-4 h-32 bg-slate-50 border border-slate-200 rounded-2xl outline-none focus:border-blue-600 text-sm leading-relaxed"
-                                                value={template}
-                                                onChange={e => setTemplate(e.target.value)}
-                                            />
-                                        </div>
-
-                                        <div>
-                                            <h3 className="font-bold text-slate-800 text-lg">قالب رسالة الاستئذان (بعذر مقبول)</h3>
-                                            <p className="text-xs text-slate-400 mb-2">المتغيرات المتاحة: {'{student_name}'} ، {'{date}'}</p>
-                                            <textarea 
-                                                className="w-full p-4 h-32 bg-slate-50 border border-slate-200 rounded-2xl outline-none focus:border-blue-600 text-sm leading-relaxed"
-                                                value={excusedTemplate}
-                                                onChange={e => setExcusedTemplate(e.target.value)}
-                                            />
-                                        </div>
-
-                                        <button onClick={() => showToast("تم حفظ قوالب الرسائل بنجاح")} className="bg-blue-600 text-white px-6 py-3 rounded-2xl font-bold text-xs shadow-md hover:bg-blue-700">
+                                    <div className="bg-white p-6 rounded-3xl border border-slate-100 space-y-4 shadow-sm">
+                                        <h3 className="font-bold text-slate-800 text-lg">قالب رسالة الغياب التلقائية</h3>
+                                        <p className="text-xs text-slate-400">الكلمات التلقائية المتاحة: {'{student_name}'} ، {'{date}'} ، {'{absence_count}'}</p>
+                                        <textarea 
+                                            className="w-full p-4 h-40 bg-slate-50 border border-slate-200 rounded-2xl outline-none focus:border-blue-600 text-sm leading-relaxed"
+                                            value={template}
+                                            onChange={e => setTemplate(e.target.value)}
+                                        />
+                                        <button onClick={() => showToast("تم حفظ قالب الرسالة")} className="bg-blue-600 text-white px-6 py-3 rounded-2xl font-bold text-xs shadow-md hover:bg-blue-700">
                                             حفظ الإعدادات
                                         </button>
                                     </div>
