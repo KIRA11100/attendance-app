@@ -3,583 +3,750 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>منصة إتقان - الإصدار الاحترافي</title>
+    <title>نظام إتقan - الإدارة السحابية المتقدمة</title>
     
-    <!-- Scripts & Styles -->
+    <!-- Fonts -->
+    <link href="https://fonts.googleapis.com/css2?family=Tajawal:wght@400;500;700;800&display=swap" rel="stylesheet">
+    <script src="https://cdn.tailwindcss.com"></script>
+    
+    <!-- React & Babel -->
     <script src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
     <script src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
     <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
-    <script src="https://cdn.tailwindcss.com"></script>
+    
+    <!-- Firebase SDK (Compat) -->
+    <script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-app-compat.js"></script>
+    <script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-firestore-compat.js"></script>
+    
+    <!-- XLSX -->
     <script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
-    <script src="https://cdnjs.cloudflare.com/ajax/libs/lucide/0.263.0/umd/lucide.min.js"></script>
-    <link href="https://fonts.googleapis.com/css2?family=Tajawal:wght@300;400;500;700;800&display=swap" rel="stylesheet">
 
     <style>
-        body { font-family: 'Tajawal', sans-serif; background-color: #f1f5f9; color: #1e293b; }
-        .glass { background: rgba(255, 255, 255, 0.9); backdrop-filter: blur(12px); }
-        .custom-scrollbar::-webkit-scrollbar { width: 6px; }
-        .custom-scrollbar::-webkit-scrollbar-thumb { background: #cbd5e1; border-radius: 10px; }
-        .btn-press:active { transform: scale(0.97); }
-        .modal-enter { animation: modalScale 0.2s ease-out; }
-        @keyframes modalScale { from { opacity: 0; transform: scale(0.95); } to { opacity: 1; transform: scale(1); } }
+        body { font-family: 'Tajawal', sans-serif; background-color: #f8fafc; }
+        .glass { background: rgba(255, 255, 255, 0.95); backdrop-filter: blur(10px); }
+        .tab-active { border-bottom: 3px solid #2563eb; color: #2563eb; }
+        .modal-overlay { background: rgba(15, 23, 42, 0.65); backdrop-filter: blur(4px); }
+        input[type="checkbox"] { accent-color: #2563eb; width: 1.15rem; height: 1.15rem; cursor: pointer; }
     </style>
 </head>
 <body>
     <div id="root"></div>
 
     <script type="text/babel">
-        const { useState, useEffect, useMemo, useRef, useCallback } = React;
+        const { useState, useEffect, useMemo, useRef } = React;
 
-        /* --- CONFIGURATION & FIREBASE MOCK ADAPTER --- */
-        // To use real Firebase, replace this mock with: import { db } from './firebase-config';
-        const StorageAdapter = {
-            async save(key, data) {
-                localStorage.setItem(`itqan_pro_${key}`, JSON.stringify(data));
-                return true;
-            },
-            async load(key) {
-                const data = localStorage.getItem(`itqan_pro_${key}`);
-                return data ? JSON.parse(data) : null;
-            }
+        // --- إعدادات فايربيس (ضع بيانات مشروعك هنا) ---
+        const firebaseConfig = {
+            apiKey: "YOUR_API_KEY",
+            authDomain: "YOUR_PROJECT.firebaseapp.com",
+            projectId: "YOUR_PROJECT_ID",
+            storageBucket: "YOUR_PROJECT.appspot.com",
+            messagingSenderId: "YOUR_SENDER_ID",
+            appId: "YOUR_APP_ID"
         };
 
-        /* --- UTILITIES --- */
-        const UIUtils = {
-            formatPhone: (val) => {
-                let num = String(val).replace(/\D/g, '');
-                if (num.startsWith('05')) num = '966' + num.substring(1);
-                if (num.length === 9) num = '966' + num;
-                return num.length === 12 ? num : null;
-            },
-            getTodayStr: () => new Date().toISOString().split('T')[0],
-            generateSessionId: (groupId, date) => `${groupId.replace(/\s+/g, '_')}_${date}`
+        if (!firebase.apps.length) {
+            firebase.initializeApp(firebaseConfig);
+        }
+        const db = firebase.firestore();
+
+        // دوال مساعدة
+        const formatSaudiPhone = (input) => {
+            if (!input) return '966500000000';
+            let num = String(input).replace(/[٠-٩]/g, d => "٠١٢٣٤٥٦٧٨٩".indexOf(d)).replace(/\D/g, '');
+            if (num.startsWith('05')) num = '966' + num.substring(1);
+            else if (num.startsWith('5') && num.length === 9) num = '966' + num;
+            else if (num.length === 9) num = '966' + num;
+            return num || '966500000000';
         };
 
-        /* --- COMPONENTS --- */
+        const getTodayDateStr = () => new Date().toISOString().split('T')[0];
 
-        const Modal = ({ isOpen, onClose, title, children, footer }) => {
-            if (!isOpen) return null;
-            return (
-                <div className="fixed inset-0 z-[100] flex items-center justify-center p-4">
-                    <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-sm" onClick={onClose}></div>
-                    <div className="bg-white w-full max-w-2xl rounded-3xl shadow-2xl z-10 overflow-hidden flex flex-col max-h-[90vh] modal-enter">
-                        <div className="p-6 border-b border-slate-100 flex justify-between items-center bg-slate-50/50">
-                            <h3 className="text-xl font-extrabold text-slate-800 tracking-tight">{title}</h3>
-                            <button onClick={onClose} className="p-2 hover:bg-slate-200 rounded-full transition-colors text-slate-500">✕</button>
-                        </div>
-                        <div className="p-6 overflow-y-auto custom-scrollbar flex-1">{children}</div>
-                        {footer && <div className="p-4 bg-slate-50 border-t flex gap-3 justify-end">{footer}</div>}
-                    </div>
-                </div>
-            );
-        };
-
-        const Toast = ({ msg, type, onClose }) => {
-            useEffect(() => { const t = setTimeout(onClose, 4000); return () => clearTimeout(t); }, [onClose]);
-            const styles = type === 'error' ? 'bg-red-600' : 'bg-emerald-600';
-            return (
-                <div className={`fixed top-6 left-1/2 -translate-x-1/2 z-[200] px-6 py-3 rounded-2xl shadow-2xl text-white font-bold flex items-center gap-3 animate-bounce ${styles}`}>
-                    <span>{type === 'error' ? '⚠️' : '✅'}</span>
-                    {msg}
-                </div>
-            );
-        };
-
-        /* --- MAIN APPLICATION --- */
-
-        const ItqanApp = () => {
-            const [role, setRole] = useState(null); // 'supervisor' | 'monitor'
-            const [view, setView] = useState('dashboard');
-            const [students, setStudents] = useState([]);
-            const [sessions, setSessions] = useState([]);
-            const [settings, setSettings] = useState({
-                absenceMsg: "ولي أمر الطالب {name}، نفيدكم بغياب ابننا اليوم {date}. إجمالي الغيابات: {count}",
-                excuseMsg: "تم قبول عذر الطالب {name} لتاريخ {date}. شكراً لتواصلكم.",
-                pinSupervisor: '1234',
-                pinMonitor: '0000'
-            });
-
-            const [toast, setToast] = useState(null);
-            const [activeSession, setActiveSession] = useState(null); // Current group being recorded
-            const [importPreview, setImportPreview] = useState(null);
-            const [searchQuery, setSearchQuery] = useState('');
-            const [filterCircle, setFilterCircle] = useState('ALL');
-
-            // Load Data
+        const Toast = ({ message, type, onClose }) => {
             useEffect(() => {
-                const loadData = async () => {
-                    const s = await StorageAdapter.load('students') || [];
-                    const sess = await StorageAdapter.load('sessions') || [];
-                    const set = await StorageAdapter.load('settings') || settings;
-                    setStudents(s);
-                    setSessions(sess);
-                    setSettings(set);
-                };
-                loadData();
+                const timer = setTimeout(onClose, 3000);
+                return () => clearTimeout(timer);
+            }, [onClose]);
+
+            return (
+                <div className={`fixed bottom-6 left-1/2 -translate-x-1/2 z-50 px-6 py-3 rounded-2xl shadow-xl text-white font-bold text-sm transition-all animate-bounce ${type === 'success' ? 'bg-emerald-600' : 'bg-red-600'}`}>
+                    {message}
+                </div>
+            );
+        };
+
+        const App = () => {
+            const [role, setRole] = useState(null);
+            const [view, setView] = useState('inbox');
+            const [pin, setPin] = useState('');
+            const [students, setStudents] = useState([]);
+            const [logs, setLogs] = useState([]);
+            const [settings, setSettings] = useState({ 
+                absence_template: "عزيزي ولي أمر الطالب {student_name}، نفيدكم بغيابه اليوم {date}. إجمالي غياباته: {absence_count}",
+                excused_template: "عزيزي ولي أمر الطالب {student_name}، تم تسجيل استئذان الطالب اليوم {date} بعذر مقبول."
+            });
+            const [toast, setToast] = useState(null);
+
+            // واجهة المسجل
+            const [activeMonitorGroup, setActiveMonitorGroup] = useState(null);
+            const [attendanceBatch, setAttendanceBatch] = useState({});
+
+            // النوافذ المنبثقة
+            const [showAddModal, setShowAddModal] = useState(false);
+            const [editingStudent, setEditingStudent] = useState(null);
+            const [newStudent, setNewStudent] = useState({ name: '', phone: '', group: '', active: true });
+            const [importPreview, setImportPreview] = useState(null);
+
+            const [selectedSids, setSelectedSids] = useState([]);
+            const [filterGroup, setFilterGroup] = useState('ALL');
+            const [search, setSearch] = useState('');
+            const fileInputRef = useRef(null);
+
+            const showToast = (msg, type = 'success') => setToast({ msg, type });
+
+            // الاستماع اللحظي للبيانات من السحابة
+            useEffect(() => {
+                const unsubStudents = db.collection('students').onSnapshot(snap => {
+                    setStudents(snap.docs.map(doc => ({ id: doc.id, ...doc.data() })));
+                }, err => showToast("تعذر الاتصال بقاعدة البيانات", "error"));
+
+                const unsubLogs = db.collection('attendance_logs').orderBy('date', 'desc').onSnapshot(snap => {
+                    setLogs(snap.docs.map(doc => ({ id: doc.id, ...doc.data() })));
+                }, err => console.error(err));
+
+                const unsubSettings = db.collection('settings').doc('app_config').onSnapshot(doc => {
+                    if (doc.exists) setSettings(doc.data());
+                });
+
+                return () => { unsubStudents(); unsubLogs(); unsubSettings(); };
             }, []);
 
-            // Auto-Save whenever state changes
-            useEffect(() => { StorageAdapter.save('students', students); }, [students]);
-            useEffect(() => { StorageAdapter.save('sessions', sessions); }, [sessions]);
-            useEffect(() => { StorageAdapter.save('settings', settings); }, [settings]);
+            const groups = useMemo(() => [...new Set(students.map(s => String(s.group).trim()))].filter(Boolean), [students]);
 
-            const notify = (msg, type = 'success') => setToast({ msg, type });
-
-            /* --- SESSION LOGIC --- */
-            const startAttendance = (groupName) => {
-                const today = UIUtils.getTodayStr();
-                const existing = sessions.find(s => s.id === UIUtils.generateSessionId(groupName, today));
-                
-                setActiveSession({
-                    groupId: groupName,
-                    date: today,
-                    isUpdate: !!existing,
-                    records: students
-                        .filter(s => s.group === groupName && s.active)
-                        .map(s => {
-                            const past = existing?.records.find(r => r.studentId === s.id);
-                            return {
-                                studentId: s.id,
-                                name: s.name,
-                                phone: s.phone,
-                                status: past ? past.status : 'present',
-                                contactStatus: past ? past.contactStatus : 'pending'
-                            };
-                        })
-                });
-                setView('recorder');
+            const handleLogin = () => {
+                if (pin === '1234') setRole('supervisor');
+                else if (pin === '0000') setRole('monitor');
+                else showToast('رمز الدخول غير صحيح', 'error');
+                setPin('');
             };
 
-            const submitAttendance = () => {
-                const sessionId = UIUtils.generateSessionId(activeSession.groupId, activeSession.date);
-                
-                // Update Student Aggregate Absences (Subtract old if update, then add new)
-                let updatedStudents = [...students];
-                
-                // If it was an update, we need to revert previous session's impact first
-                const existingSession = sessions.find(s => s.id === sessionId);
-                if (existingSession) {
-                    existingSession.records.forEach(rec => {
-                        if (rec.status === 'absent') {
-                            updatedStudents = updatedStudents.map(s => s.id === rec.studentId ? {...s, absences: Math.max(0, s.absences - 1)} : s);
-                        }
-                    });
-                }
+            const logout = () => {
+                setRole(null);
+                setPin('');
+                setActiveMonitorGroup(null);
+                setAttendanceBatch({});
+                setEditingStudent(null);
+                setShowAddModal(false);
+            };
 
-                // Apply new impacts
-                activeSession.records.forEach(rec => {
-                    if (rec.status === 'absent') {
-                        updatedStudents = updatedStudents.map(s => s.id === rec.studentId ? {...s, absences: s.absences + 1} : s);
+            // بدء جلسة التحضير مع جلب الحالة السابقة إن وجدت لمنع التكرار
+            const handleStartGroupAttendance = (groupName) => {
+                const today = getTodayDateStr();
+                const sessionId = `${groupName.replace(/\s+/g, '_')}_${today}`;
+                const existingLog = logs.find(l => l.id === sessionId);
+
+                const initialMap = {};
+                const activeGroupStudents = students.filter(s => String(s.group).trim() === groupName && s.active);
+
+                activeGroupStudents.forEach(s => {
+                    if (existingLog) {
+                        const rec = existingLog.records?.find(r => String(r.studentId) === String(s.id));
+                        initialMap[s.id] = rec ? rec.status : 'present';
+                    } else {
+                        initialMap[s.id] = 'present';
                     }
                 });
 
-                const finalSession = {
-                    ...activeSession,
-                    id: sessionId,
-                    timestamp: new Date().toISOString()
-                };
-
-                setStudents(updatedStudents);
-                setSessions(prev => [finalSession, ...prev.filter(s => s.id !== sessionId)]);
-                setView('dashboard');
-                setActiveSession(null);
-                notify("تم حفظ سجل التحضير بنجاح");
+                setAttendanceBatch(initialMap);
+                setActiveMonitorGroup(groupName);
             };
 
-            /* --- EXCEL PIPELINE --- */
-            const handleExcelImport = (e) => {
+            // اعتماد التحضير السحابي مع حفظ اللقطة التاريخية الثابتة
+            const submitAttendance = async () => {
+                const groupName = activeMonitorGroup;
+                const today = getTodayDateStr();
+                const sessionId = `${groupName.replace(/\s+/g, '_')}_${today}`;
+                const existingLog = logs.find(l => l.id === sessionId);
+
+                const activeGroupStudents = students.filter(s => String(s.group).trim() === groupName && s.active);
+
+                // بناء اللقطة التاريخية الثابتة (Immutable Snapshot)
+                const snapshotRecords = activeGroupStudents.map(s => ({
+                    studentId: String(s.id),
+                    name: s.name,
+                    phone: s.phone,
+                    group: s.group,
+                    status: attendanceBatch[s.id] || 'present',
+                    contactStatus: 'pending'
+                }));
+
+                try {
+                    const batch = db.batch();
+
+                    // 1. إعادة ضبط الغيابات السابقة إن كان هذا تعديلاً لكشف مسجل اليوم
+                    if (existingLog && existingLog.records) {
+                        existingLog.records.forEach(r => {
+                            if (r.status === 'absent') {
+                                const ref = db.collection('students').doc(r.studentId);
+                                batch.update(ref, { absences: firebase.firestore.FieldValue.increment(-1) });
+                            }
+                        });
+                    }
+
+                    // 2. تطبيق الغيابات الجديدة
+                    snapshotRecords.forEach(r => {
+                        if (r.status === 'absent') {
+                            const ref = db.collection('students').doc(r.studentId);
+                            batch.update(ref, { absences: firebase.firestore.FieldValue.increment(1) });
+                        }
+                    });
+
+                    // 3. حفظ المحضر في السحابة بمعرّف الجلسة الفريد لمنع تكرار الكشوفات
+                    const logRef = db.collection('attendance_logs').doc(sessionId);
+                    batch.set(logRef, {
+                        id: sessionId,
+                        group: groupName,
+                        date: today,
+                        timestamp: firebase.firestore.FieldValue.serverTimestamp(),
+                        records: snapshotRecords,
+                        reviewed: false
+                    });
+
+                    await batch.commit();
+                    showToast(existingLog ? "تم تعديل كشف اليوم بنجاح" : "تم اعتماد كشف التحضير سحابياً");
+                    setActiveMonitorGroup(null);
+                    setAttendanceBatch({});
+                } catch (err) {
+                    console.error(err);
+                    showToast("حدث خطأ أثناء الاتصال بقاعدة البيانات", "error");
+                }
+            };
+
+            // تحويل حالة الغائب إلى مستئذن وتعديل رصيد الغياب في السحابة
+            const handleConvertAbsence = async (logId, studentId) => {
+                try {
+                    const logRef = db.collection('attendance_logs').doc(logId);
+                    const logDoc = await logRef.get();
+                    if (!logDoc.exists) return;
+
+                    const logData = logDoc.data();
+                    const updatedRecords = logData.records.map(r => {
+                        if (String(r.studentId) === String(studentId)) {
+                            return { ...r, status: 'excused' };
+                        }
+                        return r;
+                    });
+
+                    const batch = db.batch();
+                    batch.update(logRef, { records: updatedRecords });
+                    batch.update(db.collection('students').doc(String(studentId)), {
+                        absences: firebase.firestore.FieldValue.increment(-1)
+                    });
+
+                    await batch.commit();
+                    showToast("تم تحويل الطالب إلى مستئذن وخصم الغياب");
+                } catch (err) {
+                    showToast("تعذر التحديث", "error");
+                }
+            };
+
+            // استيراد الإكسل مع شاشة المعاينة
+            const handleExcelFileSelect = (e) => {
                 const file = e.target.files[0];
+                if (!file) return;
+
                 const reader = new FileReader();
                 reader.onload = (evt) => {
-                    const wb = XLSX.read(evt.target.result, { type: 'binary' });
-                    const data = XLSX.utils.sheet_to_json(wb.Sheets[wb.SheetNames[0]]);
-                    
-                    const parsed = data.map((row, idx) => ({
-                        id: Date.now() + idx,
-                        name: (row['الاسم'] || row['Name'] || '').trim(),
-                        phone: UIUtils.formatPhone(row['الجوال'] || row['Phone']),
-                        group: (row['الحلقة'] || row['Group'] || 'عام').trim(),
-                        absences: parseInt(row['الغيابات'] || 0),
-                        active: true
-                    })).filter(p => p.name && p.phone);
+                    try {
+                        const wb = XLSX.read(evt.target.result, { type: 'binary' });
+                        const ws = wb.Sheets[wb.SheetNames[0]];
+                        const data = XLSX.utils.sheet_to_json(ws, { defval: "" });
 
-                    if (parsed.length === 0) return notify("لم يتم العثور على بيانات صالحة", "error");
-                    setImportPreview(parsed);
+                        const parsed = data.map((row, idx) => {
+                            const clean = {};
+                            Object.keys(row).forEach(k => clean[k.trim()] = String(row[k]).trim());
+
+                            const name = clean['الاسم'] || clean['اسم الطالب'] || clean['name'] || '';
+                            const phone = formatSaudiPhone(clean['الرقم'] || clean['رقم الجوال'] || clean['phone'] || '');
+                            const group = clean['الحلقة'] || clean['الفصل'] || 'عام';
+                            const rawStatus = clean['الحالة'] || 'مستمر';
+                            const isActive = !(rawStatus.includes('منقطع') || rawStatus.includes('غير'));
+
+                            return {
+                                name,
+                                phone,
+                                group,
+                                absences: parseInt(clean['غيابات'] || 0) || 0,
+                                active: isActive
+                            };
+                        }).filter(s => s.name && s.name.length > 1);
+
+                        if (parsed.length === 0) {
+                            showToast("لم يتم العثور على بيانات صالحة", "error");
+                            return;
+                        }
+
+                        setImportPreview(parsed);
+                    } catch (err) {
+                        showToast("خطأ في قراءة الملف", "error");
+                    }
                 };
                 reader.readAsBinaryString(file);
+                e.target.value = '';
             };
 
-            /* --- VIEW COMPONENTS --- */
-            
-            const LoginView = () => {
-                const [pin, setPin] = useState('');
-                const attempt = () => {
-                    if (pin === settings.pinSupervisor) setRole('supervisor');
-                    else if (pin === settings.pinMonitor) setRole('monitor');
-                    else notify("رمز الدخول خاطئ", "error");
-                };
-                return (
-                    <div className="min-h-screen flex items-center justify-center bg-slate-900 p-4">
-                        <div className="bg-white p-10 rounded-[2.5rem] shadow-2xl w-full max-w-md text-center space-y-8">
-                            <div className="inline-flex p-5 bg-blue-600 rounded-3xl text-white shadow-xl shadow-blue-200">
-                                <svg className="w-10 h-10" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2.5" d="M12 11c0 3.517-1.009 6.799-2.753 9.571m-3.44-2.04l.054-.09A10.003 10.003 0 0012 3m0 0c.887 0 1.741.099 2.56.287M12 3v18m0-18l3.66 3.66M12 21l-3.66-3.66" /></svg>
-                            </div>
-                            <h1 className="text-3xl font-black text-slate-800">منصة إتقان</h1>
-                            <input 
-                                type="password" placeholder="أدخل رمز الدخول (PIN)" 
-                                className="w-full p-5 bg-slate-50 border-2 border-slate-100 rounded-2xl text-center text-3xl tracking-[1em] outline-none focus:border-blue-500 transition-all"
-                                value={pin} onChange={e => setPin(e.target.value)}
-                                onKeyDown={e => e.key === 'Enter' && attempt()}
-                            />
-                            <button onClick={attempt} className="w-full bg-slate-900 text-white p-5 rounded-2xl font-bold text-lg btn-press shadow-xl">تسجيل الدخول</button>
-                        </div>
-                    </div>
-                );
+            const commitExcelImport = async () => {
+                if (!importPreview) return;
+                try {
+                    const batch = db.batch();
+                    importPreview.forEach(s => {
+                        const newDocRef = db.collection('students').doc();
+                        batch.set(newDocRef, s);
+                    });
+                    await batch.commit();
+                    showToast(`تم استيراد ${importPreview.length} طالب سحابياً`);
+                    setImportPreview(null);
+                } catch (err) {
+                    showToast("خطأ أثناء الحفظ في قاعدة البيانات", "error");
+                }
             };
 
-            const Dashboard = () => {
-                const circles = [...new Set(students.map(s => s.group))];
-                return (
-                    <div className="space-y-6">
-                        <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
-                            <div className="bg-white p-6 rounded-3xl shadow-sm border border-slate-100">
-                                <h4 className="text-slate-400 font-bold text-sm uppercase">إجمالي الطلاب</h4>
-                                <p className="text-4xl font-black text-slate-800 mt-2">{students.length}</p>
-                            </div>
-                            <div className="bg-blue-600 p-6 rounded-3xl shadow-lg shadow-blue-100 text-white">
-                                <h4 className="text-blue-100 font-bold text-sm uppercase">نسبة الحضور الأسبوعية</h4>
-                                <p className="text-4xl font-black mt-2">84%</p>
-                            </div>
-                            <div className="bg-white p-6 rounded-3xl shadow-sm border border-slate-100">
-                                <h4 className="text-slate-400 font-bold text-sm uppercase">حالات تستوجب التواصل</h4>
-                                <p className="text-4xl font-black text-red-500 mt-2">{students.filter(s => s.absences >= 3).length}</p>
-                            </div>
-                        </div>
+            const handleAddManualStudent = async (e) => {
+                e.preventDefault();
+                if (!newStudent.name.trim()) return;
 
-                        <div className="bg-white rounded-[2rem] p-8 shadow-sm border border-slate-100">
-                            <h3 className="text-xl font-black mb-6">الحلقات والصفوف</h3>
-                            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
-                                {circles.map(c => {
-                                    const count = students.filter(s => s.group === c && s.active).length;
-                                    const isDone = sessions.some(s => s.id === UIUtils.generateSessionId(c, UIUtils.getTodayStr()));
-                                    return (
-                                        <div key={c} className="group p-5 bg-slate-50 border border-slate-200 rounded-2xl hover:border-blue-400 transition-all cursor-pointer" onClick={() => startAttendance(c)}>
-                                            <div className="flex justify-between items-start">
-                                                <div>
-                                                    <h5 className="font-bold text-lg text-slate-800">{c}</h5>
-                                                    <span className="text-sm text-slate-500 font-medium">{count} طالب نشط</span>
-                                                </div>
-                                                {isDone ? 
-                                                    <span className="bg-emerald-100 text-emerald-700 text-[10px] px-2 py-1 rounded-lg font-bold">تم الرصد اليوم</span> :
-                                                    <span className="bg-blue-100 text-blue-700 text-[10px] px-2 py-1 rounded-lg font-bold">انتظار الرصد</span>
-                                                }
-                                            </div>
-                                            <div className="mt-4 flex items-center text-blue-600 font-bold text-xs group-hover:gap-2 transition-all">
-                                                {isDone ? 'تعديل كشف اليوم' : 'بدء التحضير'} 
-                                                <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path d="M10 19l-7-7m0 0l7-7m-7 7h18" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"/></svg>
-                                            </div>
-                                        </div>
-                                    )
-                                })}
-                            </div>
-                        </div>
-                    </div>
-                );
+                try {
+                    await db.collection('students').add({
+                        name: newStudent.name.trim(),
+                        phone: formatSaudiPhone(newStudent.phone),
+                        group: newStudent.group.trim() || 'عام',
+                        absences: 0,
+                        active: newStudent.active
+                    });
+                    setNewStudent({ name: '', phone: '', group: '', active: true });
+                    setShowAddModal(false);
+                    showToast("تمت إضافة الطالب بنجاح");
+                } catch (err) {
+                    showToast("تعذر حفظ الطالب", "error");
+                }
             };
 
-            const StudentManager = () => {
-                const filtered = students.filter(s => {
-                    const matchSearch = s.name.includes(searchQuery) || s.phone.includes(searchQuery);
-                    const matchCircle = filterCircle === 'ALL' || s.group === filterCircle;
-                    return matchSearch && matchCircle;
+            const handleSaveEdit = async (e) => {
+                e.preventDefault();
+                try {
+                    await db.collection('students').doc(editingStudent.id).update({
+                        name: editingStudent.name.trim(),
+                        phone: formatSaudiPhone(editingStudent.phone),
+                        group: editingStudent.group.trim(),
+                        absences: parseInt(editingStudent.absences || 0),
+                        active: editingStudent.active === true || editingStudent.active === 'true'
+                    });
+                    setEditingStudent(null);
+                    showToast("تم تحديث بيانات الطالب");
+                } catch (err) {
+                    showToast("فشل التعديل", "error");
+                }
+            };
+
+            const deleteSingleStudent = async (id) => {
+                if (confirm("هل أنت متأكد من حذف هذا الطالب نهائياً من السحابة؟")) {
+                    try {
+                        await db.collection('students').doc(id).delete();
+                        showToast("تم حذف الطالب");
+                    } catch (err) {
+                        showToast("تعذر الحذف", "error");
+                    }
+                }
+            };
+
+            const deleteSelectedStudents = async () => {
+                if (!confirm(`حذف ${selectedSids.length} طالب محددين نهائياً؟`)) return;
+                try {
+                    const batch = db.batch();
+                    selectedSids.forEach(id => {
+                        batch.delete(db.collection('students').doc(id));
+                    });
+                    await batch.commit();
+                    setSelectedSids([]);
+                    showToast("تم حذف الطلاب المحددين");
+                } catch (err) {
+                    showToast("تعذر الحذف", "error");
+                }
+            };
+
+            const getStatusBadge = (count) => {
+                const c = Number(count) || 0;
+                if (c >= 6) return <span className="bg-red-100 text-red-700 px-2.5 py-0.5 rounded-md text-xs font-bold">خطر (حمراء)</span>;
+                if (c >= 3) return <span className="bg-yellow-100 text-yellow-700 px-2.5 py-0.5 rounded-md text-xs font-bold">تحذير (صفراء)</span>;
+                return <span className="bg-emerald-100 text-emerald-700 px-2.5 py-0.5 rounded-md text-xs font-bold">طبيعي</span>;
+            };
+
+            const filteredStudents = useMemo(() => {
+                return students.filter(s => {
+                    const matchGroup = filterGroup === 'ALL' || String(s.group).trim() === filterGroup;
+                    const matchSearch = s.name.includes(search) || s.phone.includes(search);
+                    return matchGroup && matchSearch;
                 });
+            }, [students, filterGroup, search]);
 
-                return (
-                    <div className="bg-white rounded-[2rem] shadow-sm border border-slate-100 overflow-hidden">
-                        <div className="p-6 border-b flex flex-wrap gap-4 items-center justify-between">
-                            <div className="flex gap-2 w-full md:w-auto">
-                                <input 
-                                    className="bg-slate-50 border-none rounded-xl px-4 py-2 text-sm w-full md:w-64 focus:ring-2 focus:ring-blue-500"
-                                    placeholder="بحث بالاسم أو الجوال..."
-                                    value={searchQuery} onChange={e => setSearchQuery(e.target.value)}
-                                />
-                                <select 
-                                    className="bg-slate-50 border-none rounded-xl px-4 py-2 text-sm"
-                                    value={filterCircle} onChange={e => setFilterCircle(e.target.value)}
-                                >
-                                    <option value="ALL">كل الحلقات</option>
-                                    {[...new Set(students.map(s => s.group))].map(c => <option key={c} value={c}>{c}</option>)}
-                                </select>
-                            </div>
-                            <div className="flex gap-2">
-                                <label className="bg-blue-600 text-white px-4 py-2 rounded-xl text-sm font-bold cursor-pointer btn-press">
-                                    استيراد Excel
-                                    <input type="file" className="hidden" accept=".xlsx" onChange={handleExcelImport} />
-                                </label>
-                            </div>
-                        </div>
-                        <div className="overflow-x-auto">
-                            <table className="w-full text-right">
-                                <thead className="bg-slate-50/50 text-slate-500 text-xs font-bold uppercase tracking-wider">
-                                    <tr>
-                                        <th className="p-5">الطالب</th>
-                                        <th className="p-5">الحلقة</th>
-                                        <th className="p-5">الغيابات</th>
-                                        <th className="p-5">الحالة</th>
-                                        <th className="p-5">الإجراءات</th>
-                                    </tr>
-                                </thead>
-                                <tbody className="divide-y divide-slate-50">
-                                    {filtered.map(s => (
-                                        <tr key={s.id} className="hover:bg-slate-50/30 transition-colors">
-                                            <td className="p-5">
-                                                <div className="font-bold text-slate-800">{s.name}</div>
-                                                <div className="text-xs text-slate-400 font-mono tracking-tighter" dir="ltr">{s.phone}</div>
-                                            </td>
-                                            <td className="p-5 text-sm text-slate-600 font-medium">{s.group}</td>
-                                            <td className="p-5">
-                                                <span className={`px-3 py-1 rounded-full text-xs font-bold ${s.absences >= 6 ? 'bg-red-100 text-red-600' : s.absences >= 3 ? 'bg-amber-100 text-amber-600' : 'bg-slate-100 text-slate-600'}`}>
-                                                    {s.absences} غيابات
-                                                </span>
-                                            </td>
-                                            <td className="p-5">
-                                                <div className={`w-2 h-2 rounded-full ${s.active ? 'bg-emerald-500' : 'bg-slate-300'}`}></div>
-                                            </td>
-                                            <td className="p-5">
-                                                <button className="text-blue-600 hover:text-blue-800 font-bold text-xs" onClick={() => {
-                                                    if(confirm('حذف الطالب؟')) setStudents(prev => prev.filter(st => st.id !== s.id));
-                                                }}>حذف</button>
-                                            </td>
-                                        </tr>
-                                    ))}
-                                </tbody>
-                            </table>
-                        </div>
-                    </div>
-                );
-            };
-
-            const RecorderView = () => {
-                return (
-                    <div className="max-w-3xl mx-auto space-y-6">
-                        <div className="bg-white p-6 rounded-[2rem] shadow-sm flex items-center justify-between">
-                            <div>
-                                <h2 className="text-2xl font-black text-slate-800">{activeSession.groupId}</h2>
-                                <p className="text-sm text-slate-400 font-medium">تحضير يوم: {activeSession.date}</p>
-                            </div>
-                            {activeSession.isUpdate && <span className="bg-amber-100 text-amber-700 px-4 py-1 rounded-full text-xs font-black">تعديل سجل موجود</span>}
-                        </div>
-
-                        <div className="space-y-3">
-                            {activeSession.records.map((rec, idx) => (
-                                <div key={rec.studentId} className={`p-5 rounded-3xl border-2 transition-all flex items-center justify-between ${rec.status === 'absent' ? 'bg-red-50 border-red-100' : rec.status === 'excused' ? 'bg-amber-50 border-amber-100' : 'bg-white border-slate-100'}`}>
-                                    <div className="flex-1">
-                                        <h4 className="font-bold text-slate-800">{rec.name}</h4>
-                                        <p className="text-xs text-slate-400">الغيابات المسجلة: {students.find(s => s.id === rec.studentId)?.absences || 0}</p>
-                                    </div>
-                                    <div className="flex bg-slate-100 p-1 rounded-2xl gap-1">
-                                        {[
-                                            {id: 'present', label: 'حاضر', color: 'bg-emerald-600'},
-                                            {id: 'excused', label: 'بعذر', color: 'bg-amber-500'},
-                                            {id: 'absent', label: 'غائب', color: 'bg-red-600'}
-                                        ].map(opt => (
-                                            <button 
-                                                key={opt.id}
-                                                className={`px-4 py-2 rounded-xl text-xs font-bold transition-all ${rec.status === opt.id ? `${opt.color} text-white shadow-md` : 'text-slate-500 hover:text-slate-700'}`}
-                                                onClick={() => {
-                                                    const next = [...activeSession.records];
-                                                    next[idx].status = opt.id;
-                                                    setActiveSession({...activeSession, records: next});
-                                                }}
-                                            >
-                                                {opt.label}
-                                            </button>
-                                        ))}
-                                    </div>
-                                </div>
-                            ))}
-                        </div>
-
-                        <button 
-                            onClick={submitAttendance}
-                            className="w-full bg-blue-600 text-white p-6 rounded-[2rem] font-black text-lg shadow-xl shadow-blue-100 btn-press"
-                        >
-                            اعتماد كشف التحضير
-                        </button>
-                    </div>
-                );
-            };
-
-            const InboxView = () => {
-                const logs = sessions.filter(s => s.records.some(r => r.status !== 'present'));
-                
-                const updateContactStatus = (sessId, stuId, status) => {
-                    setSessions(prev => prev.map(s => {
-                        if (s.id !== sessId) return s;
-                        return {
-                            ...s,
-                            records: s.records.map(r => r.studentId === stuId ? {...r, contactStatus: status} : r)
-                        };
-                    }));
-                };
-
-                return (
-                    <div className="space-y-6">
-                        {logs.map(sess => (
-                            <div key={sess.id} className="bg-white rounded-[2rem] border border-slate-100 overflow-hidden shadow-sm">
-                                <div className="p-6 bg-slate-50 border-b flex justify-between items-center">
-                                    <div className="flex items-center gap-4">
-                                        <span className="font-black text-slate-800">{sess.groupId}</span>
-                                        <span className="text-xs text-slate-400">{sess.date}</span>
-                                    </div>
-                                    <span className="text-[10px] font-bold bg-slate-200 px-2 py-1 rounded">تاريخ الأرشفة: {new Date(sess.timestamp).toLocaleTimeString('ar-SA')}</span>
-                                </div>
-                                <div className="divide-y divide-slate-50">
-                                    {sess.records.filter(r => r.status !== 'present').map(r => {
-                                        const msg = (r.status === 'absent' ? settings.absenceMsg : settings.excuseMsg)
-                                            .replace('{name}', r.name)
-                                            .replace('{date}', sess.date)
-                                            .replace('{count}', students.find(s => s.id === r.studentId)?.absences || 0);
-
-                                        return (
-                                            <div key={r.studentId} className="p-6 flex flex-wrap items-center justify-between gap-4">
-                                                <div className="flex-1">
-                                                    <div className="flex items-center gap-2">
-                                                        <span className="font-bold text-slate-800">{r.name}</span>
-                                                        <span className={`text-[10px] px-2 py-0.5 rounded font-bold ${r.status === 'absent' ? 'bg-red-100 text-red-600' : 'bg-amber-100 text-amber-600'}`}>
-                                                            {r.status === 'absent' ? 'غائب' : 'مستأذن'}
-                                                        </span>
-                                                    </div>
-                                                    <div className="text-xs text-slate-500 mt-1">{r.phone}</div>
-                                                </div>
-                                                
-                                                <div className="flex items-center gap-3">
-                                                    <select 
-                                                        className={`text-[10px] font-bold border-none rounded-lg px-3 py-2 ${r.contactStatus === 'done' ? 'bg-emerald-100 text-emerald-700' : 'bg-slate-100 text-slate-600'}`}
-                                                        value={r.contactStatus}
-                                                        onChange={(e) => updateContactStatus(sess.id, r.studentId, e.target.value)}
-                                                    >
-                                                        <option value="pending">لم يتم التواصل</option>
-                                                        <option value="opened">تم فتح واتساب</option>
-                                                        <option value="done">تم التواصل</option>
-                                                        <option value="error">تعذر الوصول</option>
-                                                    </select>
-
-                                                    <a 
-                                                        href={`https://wa.me/${r.phone}?text=${encodeURIComponent(msg)}`} 
-                                                        target="_blank"
-                                                        onClick={() => updateContactStatus(sess.id, r.studentId, 'opened')}
-                                                        className="bg-emerald-500 text-white p-2 px-4 rounded-xl text-xs font-bold btn-press flex items-center gap-2"
-                                                    >
-                                                        واتساب
-                                                    </a>
-                                                </div>
-                                            </div>
-                                        )
-                                    })}
-                                </div>
-                            </div>
-                        ))}
-                    </div>
-                );
-            };
-
-            /* --- LAYOUT WRAPPER --- */
-
-            if (!role) return <LoginView />;
-
-            return (
-                <div className="min-h-screen pb-20">
-                    {/* Header */}
-                    <header className="sticky top-0 z-50 glass border-b border-slate-200 px-6 py-4 flex justify-between items-center">
-                        <div className="flex items-center gap-4">
-                            <div className="w-10 h-10 bg-slate-900 rounded-xl flex items-center justify-center text-white font-black">إ</div>
-                            <div>
-                                <h1 className="font-black text-slate-800 text-lg leading-none">إتقان</h1>
-                                <p className="text-[10px] text-slate-400 font-bold uppercase tracking-wider">{role === 'supervisor' ? 'لوحة المشرف' : 'بوابة المسجل'}</p>
-                            </div>
-                        </div>
-                        <div className="flex items-center gap-2">
-                            <button onClick={() => setRole(null)} className="p-2 hover:bg-slate-100 rounded-xl transition-colors">
-                                <svg className="w-5 h-5 text-slate-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M17 16l4-4m0 0l-4-4m4 4H7m6 4v1a3 3 0 01-3 3H6a3 3 0 01-3-3V7a3 3 0 013-3h4a3 3 0 013 3v1" /></svg>
+            if (!role) return (
+                <div className="min-h-screen flex items-center justify-center p-4 bg-slate-900">
+                    <div className="max-w-md w-full bg-white rounded-3xl shadow-2xl p-8 space-y-6 text-center">
+                        <div className="w-16 h-16 bg-blue-600 text-white text-3xl font-bold rounded-2xl flex items-center justify-center mx-auto mb-4 shadow-lg">✓</div>
+                        <h1 className="text-2xl font-extrabold text-slate-800">منصة إتقان السحابية</h1>
+                        <p className="text-slate-400 text-sm">مزامنة سحابية فورية بين المشرف والمسجل</p>
+                        <div className="space-y-4">
+                            <input 
+                                type="password" 
+                                placeholder="أدخل رمز الدخول (PIN)" 
+                                className="w-full p-4 bg-slate-50 border-2 border-slate-200 rounded-2xl text-center text-2xl tracking-widest outline-none focus:border-blue-600 transition-all"
+                                value={pin}
+                                onChange={e => setPin(e.target.value)}
+                                onKeyDown={e => e.key === 'Enter' && handleLogin()}
+                            />
+                            <button onClick={handleLogin} className="w-full bg-blue-600 hover:bg-blue-700 text-white p-4 rounded-2xl font-bold text-lg shadow-lg">
+                                تسجيل الدخول
                             </button>
                         </div>
+                    </div>
+                </div>
+            );
+
+            return (
+                <div className="min-h-screen pb-24 max-w-5xl mx-auto">
+                    <header className="sticky top-0 z-30 glass border-b border-slate-200 px-6 py-4 flex justify-between items-center shadow-sm">
+                        <div className="flex items-center gap-2">
+                            <span className="bg-blue-600 text-white px-3 py-1.5 rounded-xl font-bold text-sm">إتقان السحابي</span>
+                            <span className="font-bold text-slate-700">{role === 'supervisor' ? 'لوحة تحكم المشرف' : 'بوابة مسجل الغياب'}</span>
+                        </div>
+                        <button onClick={logout} className="text-xs font-bold text-red-500 hover:bg-red-50 px-3 py-2 rounded-xl">تسجيل الخروج</button>
                     </header>
 
-                    <main className="max-w-6xl mx-auto p-6">
-                        {/* Navigation */}
-                        {role === 'supervisor' && view !== 'recorder' && (
-                            <nav className="flex gap-2 mb-8 bg-white p-1.5 rounded-2xl border border-slate-100 shadow-sm w-fit">
-                                {[
-                                    {id: 'dashboard', label: 'الرئيسية'},
-                                    {id: 'students', label: 'الطلاب'},
-                                    {id: 'inbox', label: 'الوارد'}
-                                ].map(t => (
-                                    <button 
-                                        key={t.id} onClick={() => setView(t.id)}
-                                        className={`px-6 py-2.5 rounded-xl font-bold text-sm transition-all ${view === t.id ? 'bg-slate-900 text-white shadow-lg' : 'text-slate-500 hover:bg-slate-50'}`}
-                                    >
-                                        {t.label}
-                                    </button>
-                                ))}
-                            </nav>
-                        )}
+                    <main className="p-4 md:p-6">
+                        {role === 'monitor' ? (
+                            <div className="space-y-6">
+                                {!activeMonitorGroup ? (
+                                    <div className="space-y-4">
+                                        <div className="bg-blue-50 p-5 rounded-2xl border border-blue-100 flex justify-between items-center">
+                                            <div>
+                                                <h2 className="font-bold text-blue-900 text-lg">قائمة الحلقات</h2>
+                                                <p className="text-xs text-blue-600 mt-1">اضغط على الحلقة لبدء رصد التحضير</p>
+                                            </div>
+                                            <span className="bg-blue-600 text-white text-xs font-bold px-3 py-1.5 rounded-xl">{groups.length} حلقات</span>
+                                        </div>
 
-                        {view === 'dashboard' && <Dashboard />}
-                        {view === 'students' && <StudentManager />}
-                        {view === 'recorder' && <RecorderView />}
-                        {view === 'inbox' && <InboxView />}
+                                        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+                                            {groups.map(g => {
+                                                const count = students.filter(s => String(s.group).trim() === g && s.active).length;
+                                                const isDoneToday = logs.some(l => l.id === `${g.replace(/\s+/g, '_')}_${getTodayDateStr()}`);
+                                                return (
+                                                    <div 
+                                                        key={g} 
+                                                        onClick={() => handleStartGroupAttendance(g)}
+                                                        className="bg-white p-5 rounded-3xl border border-slate-100 hover:border-blue-400 hover:shadow-md cursor-pointer flex justify-between items-center transition-all"
+                                                    >
+                                                        <div>
+                                                            <h3 className="font-bold text-slate-800 text-lg">{g}</h3>
+                                                            <p className="text-xs text-slate-400 mt-1">{count} طالب نشط</p>
+                                                            {isDoneToday && <span className="inline-block mt-2 text-[10px] bg-emerald-100 text-emerald-700 font-bold px-2 py-0.5 rounded">تم الرصد اليوم (اضغط للتعديل)</span>}
+                                                        </div>
+                                                        <span className="text-blue-600 font-bold text-xl">←</span>
+                                                    </div>
+                                                );
+                                            })}
+                                        </div>
+                                    </div>
+                                ) : (
+                                    <div className="space-y-4 max-w-2xl mx-auto">
+                                        <div className="flex items-center justify-between bg-white p-4 rounded-2xl border border-slate-100 shadow-sm">
+                                            <button onClick={() => setActiveMonitorGroup(null)} className="text-xs font-bold text-slate-600 bg-slate-100 px-3 py-2 rounded-xl">
+                                                → رجوع للحلقات
+                                            </button>
+                                            <h2 className="font-bold text-lg text-slate-800">{activeMonitorGroup}</h2>
+                                            <div className="flex gap-2 text-xs font-bold">
+                                                <span className="text-red-500">{Object.values(attendanceBatch).filter(v => v === 'absent').length} غائب</span>
+                                                <span className="text-amber-600">{Object.values(attendanceBatch).filter(v => v === 'excused').length} مستئذن</span>
+                                            </div>
+                                        </div>
+
+                                        <div className="bg-white rounded-3xl shadow-sm border border-slate-100 overflow-hidden divide-y divide-slate-50">
+                                            {students.filter(s => String(s.group).trim() === activeMonitorGroup && s.active).map(s => {
+                                                const currentStatus = attendanceBatch[s.id] || 'present';
+                                                return (
+                                                    <div key={s.id} className={`p-4 flex justify-between items-center transition-colors ${currentStatus === 'absent' ? 'bg-red-50' : currentStatus === 'excused' ? 'bg-amber-50' : ''}`}>
+                                                        <div>
+                                                            <span className="font-bold text-base text-slate-800">{s.name}</span>
+                                                            <span className="text-xs text-slate-400 block">الغيابات السابقة: {s.absences || 0}</span>
+                                                        </div>
+                                                        <div className="flex gap-1 bg-slate-100 p-1 rounded-xl">
+                                                            <button onClick={() => setAttendanceBatch(prev => ({...prev, [s.id]: 'present'}))} className={`px-3 py-1.5 rounded-lg text-xs font-bold ${currentStatus === 'present' ? 'bg-emerald-600 text-white' : 'text-slate-600'}`}>حاضر</button>
+                                                            <button onClick={() => setAttendanceBatch(prev => ({...prev, [s.id]: 'excused'}))} className={`px-3 py-1.5 rounded-lg text-xs font-bold ${currentStatus === 'excused' ? 'bg-amber-500 text-white' : 'text-slate-600'}`}>مستئذن</button>
+                                                            <button onClick={() => setAttendanceBatch(prev => ({...prev, [s.id]: 'absent'}))} className={`px-3 py-1.5 rounded-lg text-xs font-bold ${currentStatus === 'absent' ? 'bg-red-600 text-white' : 'text-slate-600'}`}>غائب</button>
+                                                        </div>
+                                                    </div>
+                                                );
+                                            })}
+                                        </div>
+
+                                        <button onClick={submitAttendance} className="w-full bg-emerald-600 hover:bg-emerald-700 text-white py-4 rounded-2xl font-bold shadow-lg">
+                                            اعتماد وإرسال الكشف سحابياً ✓
+                                        </button>
+                                    </div>
+                                )}
+                            </div>
+                        ) : (
+                            <div className="space-y-6">
+                                <div className="flex bg-white p-1.5 rounded-2xl border border-slate-100 shadow-sm">
+                                    {['inbox', 'students', 'settings'].map(t => (
+                                        <button 
+                                            key={t} 
+                                            onClick={() => setView(t)} 
+                                            className={`flex-1 py-3 rounded-xl font-bold text-sm transition-all ${view === t ? 'bg-blue-600 text-white shadow-md' : 'text-slate-500'}`}
+                                        >
+                                            {t === 'inbox' ? 'الوارد' : t === 'students' ? 'الطلاب والحلقات' : 'الإعدادات'}
+                                        </button>
+                                    ))}
+                                </div>
+
+                                {view === 'inbox' && (
+                                    <div className="space-y-4">
+                                        {logs.map(log => {
+                                            const absentees = log.records?.filter(r => r.status === 'absent') || [];
+                                            const excused = log.records?.filter(r => r.status === 'excused') || [];
+
+                                            return (
+                                                <div key={log.id} className="bg-white rounded-3xl border border-slate-100 shadow-sm p-5 space-y-4">
+                                                    <div className="flex justify-between items-center border-b pb-3">
+                                                        <div>
+                                                            <span className="bg-blue-100 text-blue-700 px-3 py-1 rounded-full text-xs font-bold">{log.group}</span>
+                                                            <span className="text-xs text-slate-400 mr-2">{log.date}</span>
+                                                        </div>
+                                                        <span className={`text-xs px-3 py-1 rounded-full font-bold ${log.reviewed ? 'bg-slate-100 text-slate-500' : 'bg-emerald-100 text-emerald-700'}`}>
+                                                            {log.reviewed ? 'تمت المراجعة' : 'جديد'}
+                                                        </span>
+                                                    </div>
+
+                                                    <div className="space-y-2">
+                                                        {absentees.map(r => {
+                                                            const currentStu = students.find(s => String(s.id) === String(r.studentId));
+                                                            const msg = settings.absence_template
+                                                                .replace(/{student_name}/g, r.name)
+                                                                .replace(/{date}/g, log.date)
+                                                                .replace(/{absence_count}/g, currentStu?.absences || 0);
+
+                                                            return (
+                                                                <div key={r.studentId} className="flex justify-between items-center bg-red-50 p-3 rounded-2xl border border-red-100">
+                                                                    <div>
+                                                                        <div className="font-bold text-sm text-slate-800">{r.name} (غائب)</div>
+                                                                        <div className="text-xs text-slate-400" dir="ltr">{r.phone}</div>
+                                                                    </div>
+                                                                    <div className="flex gap-2">
+                                                                        <button onClick={() => handleConvertAbsence(log.id, r.studentId)} className="bg-amber-100 text-amber-900 px-3 py-1 rounded-xl text-xs font-bold">تحويل لمستئذن ⏱️</button>
+                                                                        <a href={`https://wa.me/${r.phone}?text=${encodeURIComponent(msg)}`} target="_blank" className="bg-emerald-500 text-white px-3 py-1 rounded-xl text-xs font-bold">واتساب 💬</a>
+                                                                    </div>
+                                                                </div>
+                                                            );
+                                                        })}
+
+                                                        {excused.map(r => {
+                                                            const msg = settings.excused_template.replace(/{student_name}/g, r.name).replace(/{date}/g, log.date);
+                                                            return (
+                                                                <div key={r.studentId} className="flex justify-between items-center bg-amber-50 p-3 rounded-2xl border border-amber-100">
+                                                                    <div>
+                                                                        <div className="font-bold text-sm text-slate-800">{r.name} (مستئذن بعذر)</div>
+                                                                        <div className="text-xs text-slate-400" dir="ltr">{r.phone}</div>
+                                                                    </div>
+                                                                    <a href={`https://wa.me/${r.phone}?text=${encodeURIComponent(msg)}`} target="_blank" className="bg-emerald-500 text-white px-3 py-1 rounded-xl text-xs font-bold">واتساب 💬</a>
+                                                                </div>
+                                                            );
+                                                        })}
+
+                                                        {absentees.length === 0 && excused.length === 0 && (
+                                                            <div className="text-center text-emerald-600 text-sm font-bold py-2">✓ جميع الطلاب حاضرون</div>
+                                                        )}
+                                                    </div>
+                                                </div>
+                                            );
+                                        })}
+                                        {logs.length === 0 && <div className="text-center py-20 text-slate-400 font-bold">لا توجد تقارير واردة حتى الآن</div>}
+                                    </div>
+                                )}
+
+                                {view === 'students' && (
+                                    <div className="space-y-4">
+                                        <div className="flex flex-wrap justify-between items-center gap-3 bg-white p-5 rounded-3xl border border-slate-100 shadow-sm">
+                                            <div className="flex gap-2">
+                                                <button onClick={() => setShowAddModal(true)} className="bg-blue-600 text-white px-4 py-2 rounded-xl text-xs font-bold">+ إضافة طالب</button>
+                                                <label className="bg-slate-100 text-slate-700 px-4 py-2 rounded-xl text-xs font-bold cursor-pointer">
+                                                    📊 استيراد Excel
+                                                    <input type="file" ref={fileInputRef} accept=".xlsx,.xls,.csv" onChange={handleExcelFileSelect} className="hidden" />
+                                                </label>
+                                            </div>
+                                            <input 
+                                                type="text" placeholder="بحث باسم الطالب أو الجوال..." 
+                                                className="bg-slate-50 border rounded-xl px-4 py-2 text-xs outline-none w-full md:w-64"
+                                                value={search} onChange={e => setSearch(e.target.value)}
+                                            />
+                                        </div>
+
+                                        <div className="bg-white rounded-3xl border border-slate-100 overflow-hidden shadow-sm">
+                                            <div className="p-4 border-b flex justify-between items-center bg-slate-50/50">
+                                                <select value={filterGroup} onChange={e => setFilterGroup(e.target.value)} className="bg-white border rounded-xl px-3 py-1 text-xs font-bold">
+                                                    <option value="ALL">جميع الحلقات ({students.length})</option>
+                                                    {groups.map(g => <option key={g} value={g}>{g}</option>)}
+                                                </select>
+                                                {selectedSids.length > 0 && (
+                                                    <button onClick={deleteSelectedStudents} className="bg-red-600 text-white px-3 py-1 rounded-xl text-xs font-bold">
+                                                        حذف ({selectedSids.length}) محددين
+                                                    </button>
+                                                )}
+                                            </div>
+
+                                            <table className="w-full text-right text-sm">
+                                                <thead className="bg-slate-50 text-slate-500 text-xs">
+                                                    <tr>
+                                                        <th className="p-4 w-10">
+                                                            <input 
+                                                                type="checkbox" 
+                                                                checked={filteredStudents.length > 0 && selectedSids.length === filteredStudents.length}
+                                                                onChange={e => setSelectedSids(e.target.checked ? filteredStudents.map(s => s.id) : [])}
+                                                            />
+                                                        </th>
+                                                        <th className="p-4 font-bold">الطالب</th>
+                                                        <th className="p-4 font-bold">الحلقة</th>
+                                                        <th className="p-4 font-bold">الغيابات</th>
+                                                        <th className="p-4 font-bold">الحالة</th>
+                                                        <th className="p-4 font-bold text-center">الخيارات</th>
+                                                    </tr>
+                                                </thead>
+                                                <tbody className="divide-y divide-slate-100">
+                                                    {filteredStudents.map(s => (
+                                                        <tr key={s.id} className="hover:bg-slate-50">
+                                                            <td className="p-4">
+                                                                <input 
+                                                                    type="checkbox" 
+                                                                    checked={selectedSids.includes(s.id)}
+                                                                    onChange={() => setSelectedSids(prev => prev.includes(s.id) ? prev.filter(i => i !== s.id) : [...prev, s.id])}
+                                                                />
+                                                            </td>
+                                                            <td className="p-4">
+                                                                <div className="font-bold text-slate-800">{s.name}</div>
+                                                                <div className="text-xs text-slate-400" dir="ltr">{s.phone}</div>
+                                                            </td>
+                                                            <td className="p-4 text-slate-600 font-medium">{s.group}</td>
+                                                            <td className="p-4">{getStatusBadge(s.absences)}</td>
+                                                            <td className="p-4">
+                                                                <span className={`text-[10px] px-2.5 py-1 rounded-md font-bold ${s.active ? 'bg-emerald-50 text-emerald-600' : 'bg-slate-200 text-slate-600'}`}>
+                                                                    {s.active ? 'مستمر' : 'منقطع'}
+                                                                </span>
+                                                            </td>
+                                                            <td className="p-4 text-center">
+                                                                <div className="flex justify-center gap-2">
+                                                                    <button onClick={() => setEditingStudent({...s})} className="bg-blue-50 text-blue-600 px-3 py-1 rounded-xl font-bold text-xs">تعديل ✏️</button>
+                                                                    <button onClick={() => deleteSingleStudent(s.id)} className="bg-red-50 text-red-600 px-3 py-1 rounded-xl font-bold text-xs">حذف 🗑️</button>
+                                                                </div>
+                                                            </td>
+                                                        </tr>
+                                                    ))}
+                                                </tbody>
+                                            </table>
+                                        </div>
+                                    </div>
+                                )}
+
+                                {view === 'settings' && (
+                                    <div className="bg-white p-6 rounded-3xl border border-slate-100 space-y-6 shadow-sm">
+                                        <div>
+                                            <label className="block text-sm font-bold mb-2">قالب رسالة الغياب (بدون عذر)</label>
+                                            <textarea className="w-full p-4 bg-slate-50 border rounded-2xl h-28 text-sm outline-none" value={settings.absence_template} onChange={e => setSettings({...settings, absence_template: e.target.value})} />
+                                        </div>
+                                        <div>
+                                            <label className="block text-sm font-bold mb-2">قالب رسالة الاستئذان (بعذر)</label>
+                                            <textarea className="w-full p-4 bg-slate-50 border rounded-2xl h-28 text-sm outline-none" value={settings.excused_template} onChange={e => setSettings({...settings, excused_template: e.target.value})} />
+                                        </div>
+                                        <button onClick={() => { db.collection('settings').doc('app_config').set(settings); showToast("تم حفظ الإعدادات سحابياً"); }} className="bg-blue-600 text-white px-8 py-3 rounded-2xl font-bold text-sm shadow-md">
+                                            حفظ الإعدادات
+                                        </button>
+                                    </div>
+                                )}
+                            </div>
+                        )}
                     </main>
 
-                    {/* Footer Nav for Mobile */}
-                    <div className="fixed bottom-0 left-0 right-0 glass border-t border-slate-200 p-3 md:hidden flex justify-around items-center">
-                        <button onClick={() => setView('dashboard')} className={`p-2 rounded-xl transition-all ${view === 'dashboard' ? 'bg-blue-600 text-white shadow-lg shadow-blue-100' : 'text-slate-400'}`}>
-                            <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M3 12l2-2m0 0l7-7 7 7M5 10v10a1 1 0 001 1h3m10-11l2 2m-2-2v10a1 1 0 01-1 1h3m-6 0a1 1 0 001-1v-4a1 1 0 011-1h2a1 1 0 011 1v4a1 1 0 001 1m-6 0h6" /></svg>
-                        </button>
-                        <button onClick={() => setView('students')} className={`p-2 rounded-xl transition-all ${view === 'students' ? 'bg-blue-600 text-white shadow-lg shadow-blue-100' : 'text-slate-400'}`}>
-                            <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M12 4.354a4 4 0 110 5.292M15 21H3v-1a6 6 0 0112 0v1zm0 0h6v-1a6 6 0 00-9-5.197M13 7a4 4 0 11-8 0 4 4 0 018 0z" /></svg>
-                        </button>
-                        <button onClick={() => setView('inbox')} className={`p-2 rounded-xl transition-all ${view === 'inbox' ? 'bg-blue-600 text-white shadow-lg shadow-blue-100' : 'text-slate-400'}`}>
-                            <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M20 13V6a2 2 0 00-2-2H6a2 2 0 00-2 2v7m16 0v5a2 2 0 01-2 2H6a2 2 0 01-2-2v-5m16 0h-2.586a1 1 0 00-.707.293l-2.414 2.414a1 1 0 01-.707.293h-3.172a1 1 0 01-.707-.293l-2.414-2.414A1 1 0 006.586 13H4" /></svg>
-                        </button>
-                    </div>
+                    {/* نافذة إضافة طالب يدوياً */}
+                    {showAddModal && (
+                        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 modal-overlay">
+                            <form onSubmit={handleAddManualStudent} className="bg-white w-full max-w-md rounded-3xl p-6 space-y-4">
+                                <h3 className="text-lg font-bold border-b pb-2">إضافة طالب سحابياً</h3>
+                                <input required placeholder="اسم الطالب الكامل" className="w-full p-3 bg-slate-50 border rounded-xl" value={newStudent.name} onChange={e => setNewStudent({...newStudent, name: e.target.value})} />
+                                <input required placeholder="رقم الجوال (05xxxx)" className="w-full p-3 bg-slate-50 border rounded-xl" dir="ltr" value={newStudent.phone} onChange={e => setNewStudent({...newStudent, phone: e.target.value})} />
+                                <input required placeholder="اسم الحلقة أو الفصل" className="w-full p-3 bg-slate-50 border rounded-xl" value={newStudent.group} onChange={e => setNewStudent({...newStudent, group: e.target.value})} />
+                                <select className="w-full p-3 bg-slate-50 border rounded-xl font-bold" value={newStudent.active ? "true" : "false"} onChange={e => setNewStudent({...newStudent, active: e.target.value === 'true'})}>
+                                    <option value="true">مستمر (نشط)</option>
+                                    <option value="false">منقطع</option>
+                                </select>
+                                <div className="flex gap-2 pt-2">
+                                    <button type="submit" className="flex-1 bg-blue-600 text-white font-bold py-3 rounded-xl">حفظ في السحابة</button>
+                                    <button type="button" onClick={() => setShowAddModal(false)} className="px-5 bg-slate-100 rounded-xl">إلغاء</button>
+                                </div>
+                            </form>
+                        </div>
+                    )}
 
-                    {/* Modals */}
-                    <Modal 
-                        isOpen={!!importPreview} 
-                        title="مراجعة استيراد البيانات" 
-                        onClose={() => setImportPreview(null)}
-                        footer={(
-                            <button className="bg-blue-600 text-white px-8 py-2 rounded-xl font-bold" onClick={() => {
-                                setStudents(prev => [...prev, ...importPreview]);
-                                setImportPreview(null);
-                                notify(`تم استيراد ${importPreview.length} طالب`);
-                            }}>تأكيد الحفظ</button>
-                        )}
-                    >
-                        <div className="space-y-4">
-                            <p className="text-sm text-slate-500 bg-blue-50 p-3 rounded-lg border border-blue-100 italic">يرجى التأكد من صحة البيانات أدناه قبل الاعتماد في قاعدة البيانات.</p>
-                            <div className="divide-y divide-slate-100">
-                                {importPreview?.map((p, i) => (
-                                    <div key={i} className="py-3 flex justify-between items-center">
-                                        <div>
-                                            <div className="font-bold text-slate-800">{p.name}</div>
-                                            <div className="text-xs text-slate-400">{p.phone}</div>
+                    {/* نافذة تعديل بيانات الطالب */}
+                    {editingStudent && (
+                        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 modal-overlay">
+                            <form onSubmit={handleSaveEdit} className="bg-white w-full max-w-md rounded-3xl p-6 space-y-4">
+                                <h3 className="text-lg font-bold border-b pb-2">تعديل بيانات الطالب</h3>
+                                <input required className="w-full p-3 bg-slate-50 border rounded-xl" value={editingStudent.name} onChange={e => setEditingStudent({...editingStudent, name: e.target.value})} />
+                                <input required className="w-full p-3 bg-slate-50 border rounded-xl" dir="ltr" value={editingStudent.phone} onChange={e => setEditingStudent({...editingStudent, phone: e.target.value})} />
+                                <input required className="w-full p-3 bg-slate-50 border rounded-xl" value={editingStudent.group} onChange={e => setEditingStudent({...editingStudent, group: e.target.value})} />
+                                <div className="grid grid-cols-2 gap-2">
+                                    <input type="number" min="0" className="w-full p-3 bg-slate-50 border rounded-xl" value={editingStudent.absences} onChange={e => setEditingStudent({...editingStudent, absences: e.target.value})} />
+                                    <select className="w-full p-3 bg-slate-50 border rounded-xl font-bold" value={editingStudent.active ? "true" : "false"} onChange={e => setEditingStudent({...editingStudent, active: e.target.value === 'true'})}>
+                                        <option value="true">مستمر</option>
+                                        <option value="false">منقطع</option>
+                                    </select>
+                                </div>
+                                <div className="flex gap-2 pt-2">
+                                    <button type="submit" className="flex-1 bg-blue-600 text-white font-bold py-3 rounded-xl">تحديث السحابة</button>
+                                    <button type="button" onClick={() => setEditingStudent(null)} className="px-5 bg-slate-100 rounded-xl">إلغاء</button>
+                                </div>
+                            </form>
+                        </div>
+                    )}
+
+                    {/* نافذة معاينة استيراد الإكسل */}
+                    {importPreview && (
+                        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 modal-overlay">
+                            <div className="bg-white w-full max-w-lg rounded-3xl p-6 space-y-4 max-h-[85vh] flex flex-col">
+                                <h3 className="text-lg font-bold border-b pb-2">معاينة استيراد الطلاب ({importPreview.length})</h3>
+                                <div className="overflow-y-auto flex-1 divide-y divide-slate-100">
+                                    {importPreview.map((p, i) => (
+                                        <div key={i} className="py-2 flex justify-between items-center text-xs">
+                                            <div>
+                                                <div className="font-bold text-slate-800">{p.name}</div>
+                                                <div className="text-slate-400" dir="ltr">{p.phone}</div>
+                                            </div>
+                                            <span className="bg-slate-100 px-2 py-1 rounded font-bold">{p.group}</span>
                                         </div>
-                                        <div className="bg-slate-100 px-3 py-1 rounded text-xs font-bold text-slate-600">{p.group}</div>
-                                    </div>
-                                ))}
+                                    ))}
+                                </div>
+                                <div className="flex gap-2 pt-2 border-t">
+                                    <button onClick={commitExcelImport} className="flex-1 bg-emerald-600 text-white font-bold py-3 rounded-xl">تأكيد الاستيراد السحابي</button>
+                                    <button onClick={() => setImportPreview(null)} className="px-5 bg-slate-100 rounded-xl">إلغاء</button>
+                                </div>
                             </div>
                         </div>
-                    </Modal>
+                    )}
 
-                    {toast && <Toast msg={toast.msg} type={toast.type} onClose={() => setToast(null)} />}
+                    {toast && <Toast message={toast.message} type={toast.type} onClose={() => setToast(null)} />}
                 </div>
             );
         };
 
         const root = ReactDOM.createRoot(document.getElementById('root'));
-        root.render(<ItqanApp />);
+        root.render(<App />);
     </script>
 </body>
 </html>
