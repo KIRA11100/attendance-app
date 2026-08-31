@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>نظام إتقan - الإدارة السحابية المتقدمة</title>
+    <title>نظام إتقان - الإدارة السحابية المتقدمة</title>
     
     <!-- Fonts -->
     <link href="https://fonts.googleapis.com/css2?family=Tajawal:wght@400;500;700;800&display=swap" rel="stylesheet">
@@ -35,14 +35,14 @@
     <script type="text/babel">
         const { useState, useEffect, useMemo, useRef } = React;
 
-        // --- إعدادات فايربيس (ضع بيانات مشروعك هنا) ---
+        // --- بيانات مشروع Firebase الخاصة بك ---
         const firebaseConfig = {
-            apiKey: "YOUR_API_KEY",
-            authDomain: "YOUR_PROJECT.firebaseapp.com",
-            projectId: "YOUR_PROJECT_ID",
-            storageBucket: "YOUR_PROJECT.appspot.com",
-            messagingSenderId: "YOUR_SENDER_ID",
-            appId: "YOUR_APP_ID"
+            apiKey: "AIzaSyDbKUezmXISXgC6PL170-soS-d3_lbKf1U",
+            authDomain: "itqan-app-3c7a0.firebaseapp.com",
+            projectId: "itqan-app-3c7a0",
+            storageBucket: "itqan-app-3c7a0.firebasestorage.app",
+            messagingSenderId: "896345573209",
+            appId: "1:896345573209:web:cd394d95e092a6361f2e48"
         };
 
         if (!firebase.apps.length) {
@@ -108,7 +108,7 @@
             useEffect(() => {
                 const unsubStudents = db.collection('students').onSnapshot(snap => {
                     setStudents(snap.docs.map(doc => ({ id: doc.id, ...doc.data() })));
-                }, err => showToast("تعذر الاتصال بقاعدة البيانات", "error"));
+                }, err => showToast("يرجى التأكد من تفعيل Firestore Database في وضع Test Mode", "error"));
 
                 const unsubLogs = db.collection('attendance_logs').orderBy('date', 'desc').onSnapshot(snap => {
                     setLogs(snap.docs.map(doc => ({ id: doc.id, ...doc.data() })));
@@ -126,7 +126,7 @@
             const handleLogin = () => {
                 if (pin === '1234') setRole('supervisor');
                 else if (pin === '0000') setRole('monitor');
-                else showToast('رمز الدخول غير صحيح', 'error');
+                else showToast('رمز الدخول غير صحيح (المشرف: 1234 | المسجل: 0000)', 'error');
                 setPin('');
             };
 
@@ -139,7 +139,7 @@
                 setShowAddModal(false);
             };
 
-            // بدء جلسة التحضير مع جلب الحالة السابقة إن وجدت لمنع التكرار
+            // بدء جلسة التحضير مع جلب الحالة السابقة لمنع التكرار
             const handleStartGroupAttendance = (groupName) => {
                 const today = getTodayDateStr();
                 const sessionId = `${groupName.replace(/\s+/g, '_')}_${today}`;
@@ -161,7 +161,7 @@
                 setActiveMonitorGroup(groupName);
             };
 
-            // اعتماد التحضير السحابي مع حفظ اللقطة التاريخية الثابتة
+            // اعتماد التحضير السحابي
             const submitAttendance = async () => {
                 const groupName = activeMonitorGroup;
                 const today = getTodayDateStr();
@@ -170,7 +170,6 @@
 
                 const activeGroupStudents = students.filter(s => String(s.group).trim() === groupName && s.active);
 
-                // بناء اللقطة التاريخية الثابتة (Immutable Snapshot)
                 const snapshotRecords = activeGroupStudents.map(s => ({
                     studentId: String(s.id),
                     name: s.name,
@@ -183,7 +182,6 @@
                 try {
                     const batch = db.batch();
 
-                    // 1. إعادة ضبط الغيابات السابقة إن كان هذا تعديلاً لكشف مسجل اليوم
                     if (existingLog && existingLog.records) {
                         existingLog.records.forEach(r => {
                             if (r.status === 'absent') {
@@ -193,7 +191,6 @@
                         });
                     }
 
-                    // 2. تطبيق الغيابات الجديدة
                     snapshotRecords.forEach(r => {
                         if (r.status === 'absent') {
                             const ref = db.collection('students').doc(r.studentId);
@@ -201,7 +198,6 @@
                         }
                     });
 
-                    // 3. حفظ المحضر في السحابة بمعرّف الجلسة الفريد لمنع تكرار الكشوفات
                     const logRef = db.collection('attendance_logs').doc(sessionId);
                     batch.set(logRef, {
                         id: sessionId,
@@ -218,11 +214,11 @@
                     setAttendanceBatch({});
                 } catch (err) {
                     console.error(err);
-                    showToast("حدث خطأ أثناء الاتصال بقاعدة البيانات", "error");
+                    showToast("حدث خطأ أثناء الحفظ في السحابة", "error");
                 }
             };
 
-            // تحويل حالة الغائب إلى مستئذن وتعديل رصيد الغياب في السحابة
+            // تحويل حالة الغائب إلى مستئذن
             const handleConvertAbsence = async (logId, studentId) => {
                 try {
                     const logRef = db.collection('attendance_logs').doc(logId);
@@ -250,7 +246,7 @@
                 }
             };
 
-            // استيراد الإكسل مع شاشة المعاينة
+            // استيراد الإكسل
             const handleExcelFileSelect = (e) => {
                 const file = e.target.files[0];
                 if (!file) return;
