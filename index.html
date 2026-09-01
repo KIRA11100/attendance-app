@@ -85,7 +85,6 @@
                 excused_template: "عزيزي ولي أمر الطالب {student_name}، تم تسجيل استئذان الطالب اليوم {date} بعذر مقبول."
             });
             const [toast, setToast] = useState(null);
-            const [showOnlyNewLogs, setShowOnlyNewLogs] = useState(true);
 
             // واجهة المسجل
             const [activeMonitorGroup, setActiveMonitorGroup] = useState(null);
@@ -216,24 +215,35 @@
                 }
             };
 
-            const toggleLogReviewStatus = async (logId, currentStatus) => {
+            // إزالة كشف كامل من قائمة الوارد
+            const handleDeleteLog = async (logId) => {
+                if (!confirm("هل تريد إزالة هذا الكشف بالكامل من قائمة الوارد؟")) return;
                 try {
-                    await db.collection('attendance_logs').doc(logId).update({
-                        reviewed: !currentStatus
-                    });
-                    showToast(!currentStatus ? "تم نقل الكشف إلى المكتملة" : "تمت إعادة الكشف إلى الجديد");
+                    await db.collection('attendance_logs').doc(logId).delete();
+                    showToast("تمت إزالة الكشف بنجاح");
                 } catch (err) {
-                    showToast("تعذر تحديث حالة الكشف", "error");
+                    showToast("تعذر حذف الكشف", "error");
                 }
             };
 
-            const deleteLog = async (logId) => {
-                if (!confirm("هل أنت متأكد من رغبتك في حذف هذا التقرير من الوارد نهائياً؟")) return;
+            // إزالة طالب واحد من كشف الوارد بعد التواصل معه
+            const handleDismissStudentFromLog = async (logId, studentId) => {
                 try {
-                    await db.collection('attendance_logs').doc(logId).delete();
-                    showToast("تم إزالة الكشف بنجاح");
+                    const logRef = db.collection('attendance_logs').doc(logId);
+                    const logDoc = await logRef.get();
+                    if (!logDoc.exists) return;
+
+                    const logData = logDoc.data();
+                    const updatedRecords = logData.records.filter(r => String(r.studentId) !== String(studentId));
+
+                    if (updatedRecords.length === 0) {
+                        await logRef.delete();
+                    } else {
+                        await logRef.update({ records: updatedRecords });
+                    }
+                    showToast("تمت إزالة الطالب من الوارد");
                 } catch (err) {
-                    showToast("تعذر حذف الكشف", "error");
+                    showToast("تعذر تحديث الكشف", "error");
                 }
             };
 
@@ -402,11 +412,6 @@
                 });
             }, [students, filterGroup, search]);
 
-            const visibleLogs = useMemo(() => {
-                if (!showOnlyNewLogs) return logs;
-                return logs.filter(l => !l.reviewed);
-            }, [logs, showOnlyNewLogs]);
-
             if (!role) return (
                 <div className="min-h-screen flex items-center justify-center p-4 bg-slate-900">
                     <div className="max-w-md w-full bg-white rounded-3xl shadow-2xl p-8 space-y-6 text-center">
@@ -521,58 +526,30 @@
                                             onClick={() => setView(t)} 
                                             className={`flex-1 py-3 rounded-xl font-bold text-sm transition-all ${view === t ? 'bg-blue-600 text-white shadow-md' : 'text-slate-500'}`}
                                         >
-                                            {t === 'inbox' ? `الوارد (${logs.filter(l => !l.reviewed).length})` : t === 'students' ? 'الطلاب والحلقات' : 'الإعدادات'}
+                                            {t === 'inbox' ? `الوارد (${logs.length})` : t === 'students' ? 'الطلاب والحلقات' : 'الإعدادات'}
                                         </button>
                                     ))}
                                 </div>
 
                                 {view === 'inbox' && (
                                     <div className="space-y-4">
-                                        {/* شريط أدوات تصفية الوارد */}
-                                        <div className="flex justify-between items-center bg-white p-4 rounded-2xl border border-slate-100 shadow-sm">
-                                            <div className="flex gap-2">
-                                                <button 
-                                                    onClick={() => setShowOnlyNewLogs(true)} 
-                                                    className={`px-4 py-2 rounded-xl text-xs font-bold transition-all ${showOnlyNewLogs ? 'bg-blue-600 text-white shadow-sm' : 'bg-slate-100 text-slate-600'}`}
-                                                >
-                                                    الجديدة فقط ({logs.filter(l => !l.reviewed).length})
-                                                </button>
-                                                <button 
-                                                    onClick={() => setShowOnlyNewLogs(false)} 
-                                                    className={`px-4 py-2 rounded-xl text-xs font-bold transition-all ${!showOnlyNewLogs ? 'bg-blue-600 text-white shadow-sm' : 'bg-slate-100 text-slate-600'}`}
-                                                >
-                                                    كل الكشوفات ({logs.length})
-                                                </button>
-                                            </div>
-                                            <span className="text-xs text-slate-400 font-bold">يتم تحديث القائمة فورياً</span>
-                                        </div>
-
-                                        {visibleLogs.map(log => {
+                                        {logs.map(log => {
                                             const absentees = log.records?.filter(r => r.status === 'absent') || [];
                                             const excused = log.records?.filter(r => r.status === 'excused') || [];
 
                                             return (
-                                                <div key={log.id} className={`bg-white rounded-3xl border border-slate-100 shadow-sm p-5 space-y-4 transition-all ${log.reviewed ? 'opacity-70 bg-slate-50/60' : ''}`}>
+                                                <div key={log.id} className="bg-white rounded-3xl border border-slate-100 shadow-sm p-5 space-y-4">
                                                     <div className="flex justify-between items-center border-b pb-3">
                                                         <div className="flex items-center gap-2">
                                                             <span className="bg-blue-100 text-blue-700 px-3 py-1 rounded-full text-xs font-bold">{log.group}</span>
                                                             <span className="text-xs text-slate-400">{log.date}</span>
                                                         </div>
-                                                        <div className="flex items-center gap-2">
-                                                            <button 
-                                                                onClick={() => toggleLogReviewStatus(log.id, log.reviewed)}
-                                                                className={`text-xs px-3 py-1.5 rounded-xl font-bold transition-all cursor-pointer ${log.reviewed ? 'bg-slate-200 text-slate-700 hover:bg-slate-300' : 'bg-emerald-100 text-emerald-800 hover:bg-emerald-200'}`}
-                                                            >
-                                                                {log.reviewed ? '✓ مكتمل (إعادة للجديد)' : 'تمييز كمكتمل وإخفاء ✓'}
-                                                            </button>
-                                                            <button 
-                                                                onClick={() => deleteLog(log.id)} 
-                                                                title="حذف هذا الكشف من الوارد"
-                                                                className="text-xs text-red-500 bg-red-50 hover:bg-red-100 p-1.5 rounded-xl font-bold"
-                                                            >
-                                                                🗑️
-                                                            </button>
-                                                        </div>
+                                                        <button 
+                                                            onClick={() => handleDeleteLog(log.id)}
+                                                            className="text-xs bg-red-50 text-red-600 hover:bg-red-100 font-bold px-3 py-1.5 rounded-xl flex items-center gap-1 transition-all"
+                                                        >
+                                                            <span>إزالة الكشف كاملاً</span> 🗑️
+                                                        </button>
                                                     </div>
 
                                                     <div className="space-y-2">
@@ -592,6 +569,7 @@
                                                                     <div className="flex gap-2">
                                                                         <button onClick={() => handleConvertAbsence(log.id, r.studentId)} className="bg-amber-100 text-amber-900 px-3 py-1 rounded-xl text-xs font-bold hover:bg-amber-200">تحويل لمستئذن ⏱️</button>
                                                                         <a href={`https://wa.me/${r.phone}?text=${encodeURIComponent(msg)}`} target="_blank" className="bg-emerald-500 hover:bg-emerald-600 text-white px-3 py-1 rounded-xl text-xs font-bold">واتساب 💬</a>
+                                                                        <button onClick={() => handleDismissStudentFromLog(log.id, r.studentId)} className="bg-slate-200 text-slate-700 hover:bg-slate-300 px-2.5 py-1 rounded-xl text-xs font-bold" title="إزالة من الوارد">✕</button>
                                                                     </div>
                                                                 </div>
                                                             );
@@ -605,7 +583,10 @@
                                                                         <div className="font-bold text-sm text-slate-800">{r.name} (مستئذن بعذر)</div>
                                                                         <div className="text-xs text-slate-400" dir="ltr">{r.phone}</div>
                                                                     </div>
-                                                                    <a href={`https://wa.me/${r.phone}?text=${encodeURIComponent(msg)}`} target="_blank" className="bg-emerald-500 hover:bg-emerald-600 text-white px-3 py-1 rounded-xl text-xs font-bold">واتساب 💬</a>
+                                                                    <div className="flex gap-2">
+                                                                        <a href={`https://wa.me/${r.phone}?text=${encodeURIComponent(msg)}`} target="_blank" className="bg-emerald-500 hover:bg-emerald-600 text-white px-3 py-1 rounded-xl text-xs font-bold">واتساب 💬</a>
+                                                                        <button onClick={() => handleDismissStudentFromLog(log.id, r.studentId)} className="bg-slate-200 text-slate-700 hover:bg-slate-300 px-2.5 py-1 rounded-xl text-xs font-bold" title="إزالة من الوارد">✕</button>
+                                                                    </div>
                                                                 </div>
                                                             );
                                                         })}
@@ -617,9 +598,9 @@
                                                 </div>
                                             );
                                         })}
-                                        {visibleLogs.length === 0 && (
+                                        {logs.length === 0 && (
                                             <div className="text-center py-20 text-slate-400 font-bold bg-white rounded-3xl border border-slate-100">
-                                                {showOnlyNewLogs ? "لا توجد كشوفات واردة جديدة بحاجة للمتابعة 🎉" : "لا توجد تقارير واردة"}
+                                                لا توجد تقارير واردة حالياً
                                             </div>
                                         )}
                                     </div>
