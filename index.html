@@ -274,6 +274,38 @@
                 }
             };
 
+            // إزالة كشف كامل من قائمة الوارد
+            const handleDeleteLog = async (logId) => {
+                if (!confirm("هل تريد إزالة هذا الكشف بالكامل من قائمة الوارد؟")) return;
+                try {
+                    await db.collection('attendance_logs').doc(logId).delete();
+                    showToast("تمت إزالة الكشف بنجاح");
+                } catch (err) {
+                    showToast("تعذر حذف الكشف", "error");
+                }
+            };
+
+            // إزالة طالب واحد من كشف الوارد بعد التواصل معه
+            const handleDismissStudentFromLog = async (logId, studentId) => {
+                try {
+                    const logRef = db.collection('attendance_logs').doc(logId);
+                    const logDoc = await logRef.get();
+                    if (!logDoc.exists) return;
+
+                    const logData = logDoc.data();
+                    const updatedRecords = logData.records.filter(r => String(r.studentId) !== String(studentId));
+
+                    if (updatedRecords.length === 0) {
+                        await logRef.delete();
+                    } else {
+                        await logRef.update({ records: updatedRecords });
+                    }
+                    showToast("تمت إزالة الطالب من الوارد");
+                } catch (err) {
+                    showToast("تعذر تحديث الكشف", "error");
+                }
+            };
+
             const handleExcelFileSelect = (e) => {
                 const file = e.target.files[0];
                 if (!file) return;
