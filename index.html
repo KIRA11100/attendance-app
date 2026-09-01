@@ -35,7 +35,7 @@
     <script type="text/babel">
         const { useState, useEffect, useMemo, useRef } = React;
 
-        // --- بيانات مشروع Firebase الخاصة بك ---
+        // --- بيانات مشروع Firebase ---
         const firebaseConfig = {
             apiKey: "AIzaSyDbKUezmXISXgC6PL170-soS-d3_lbKf1U",
             authDomain: "itqan-app-3c7a0.firebaseapp.com",
@@ -50,7 +50,6 @@
         }
         const db = firebase.firestore();
 
-        // دوال مساعدة
         const formatSaudiPhone = (input) => {
             if (!input) return '966500000000';
             let num = String(input).replace(/[٠-٩]/g, d => "٠١٢٣٤٥٦٧٨٩".indexOf(d)).replace(/\D/g, '');
@@ -86,6 +85,7 @@
                 excused_template: "عزيزي ولي أمر الطالب {student_name}، تم تسجيل استئذان الطالب اليوم {date} بعذر مقبول."
             });
             const [toast, setToast] = useState(null);
+            const [showOnlyNewLogs, setShowOnlyNewLogs] = useState(true);
 
             // واجهة المسجل
             const [activeMonitorGroup, setActiveMonitorGroup] = useState(null);
@@ -102,13 +102,13 @@
             const [search, setSearch] = useState('');
             const fileInputRef = useRef(null);
 
-            const showToast = (msg, type = 'success') => setToast({ msg, type });
+            const showToast = (message, type = 'success') => setToast({ message, type });
 
             // الاستماع اللحظي للبيانات من السحابة
             useEffect(() => {
                 const unsubStudents = db.collection('students').onSnapshot(snap => {
                     setStudents(snap.docs.map(doc => ({ id: doc.id, ...doc.data() })));
-                }, err => showToast("يرجى التأكد من تفعيل Firestore Database في وضع Test Mode", "error"));
+                }, () => showToast("يرجى التأكد من تفعيل Firestore Database", "error"));
 
                 const unsubLogs = db.collection('attendance_logs').orderBy('date', 'desc').onSnapshot(snap => {
                     setLogs(snap.docs.map(doc => ({ id: doc.id, ...doc.data() })));
@@ -139,7 +139,6 @@
                 setShowAddModal(false);
             };
 
-            // بدء جلسة التحضير مع جلب الحالة السابقة لمنع التكرار
             const handleStartGroupAttendance = (groupName) => {
                 const today = getTodayDateStr();
                 const sessionId = `${groupName.replace(/\s+/g, '_')}_${today}`;
@@ -161,7 +160,6 @@
                 setActiveMonitorGroup(groupName);
             };
 
-            // اعتماد التحضير السحابي
             const submitAttendance = async () => {
                 const groupName = activeMonitorGroup;
                 const today = getTodayDateStr();
@@ -218,7 +216,27 @@
                 }
             };
 
-            // تحويل حالة الغائب إلى مستئذن
+            const toggleLogReviewStatus = async (logId, currentStatus) => {
+                try {
+                    await db.collection('attendance_logs').doc(logId).update({
+                        reviewed: !currentStatus
+                    });
+                    showToast(!currentStatus ? "تم نقل الكشف إلى المكتملة" : "تمت إعادة الكشف إلى الجديد");
+                } catch (err) {
+                    showToast("تعذر تحديث حالة الكشف", "error");
+                }
+            };
+
+            const deleteLog = async (logId) => {
+                if (!confirm("هل أنت متأكد من رغبتك في حذف هذا التقرير من الوارد نهائياً؟")) return;
+                try {
+                    await db.collection('attendance_logs').doc(logId).delete();
+                    showToast("تم إزالة الكشف بنجاح");
+                } catch (err) {
+                    showToast("تعذر حذف الكشف", "error");
+                }
+            };
+
             const handleConvertAbsence = async (logId, studentId) => {
                 try {
                     const logRef = db.collection('attendance_logs').doc(logId);
@@ -246,7 +264,6 @@
                 }
             };
 
-            // استيراد الإكسل
             const handleExcelFileSelect = (e) => {
                 const file = e.target.files[0];
                 if (!file) return;
@@ -258,7 +275,7 @@
                         const ws = wb.Sheets[wb.SheetNames[0]];
                         const data = XLSX.utils.sheet_to_json(ws, { defval: "" });
 
-                        const parsed = data.map((row, idx) => {
+                        const parsed = data.map((row) => {
                             const clean = {};
                             Object.keys(row).forEach(k => clean[k.trim()] = String(row[k]).trim());
 
@@ -385,6 +402,11 @@
                 });
             }, [students, filterGroup, search]);
 
+            const visibleLogs = useMemo(() => {
+                if (!showOnlyNewLogs) return logs;
+                return logs.filter(l => !l.reviewed);
+            }, [logs, showOnlyNewLogs]);
+
             if (!role) return (
                 <div className="min-h-screen flex items-center justify-center p-4 bg-slate-900">
                     <div className="max-w-md w-full bg-white rounded-3xl shadow-2xl p-8 space-y-6 text-center">
@@ -499,27 +521,58 @@
                                             onClick={() => setView(t)} 
                                             className={`flex-1 py-3 rounded-xl font-bold text-sm transition-all ${view === t ? 'bg-blue-600 text-white shadow-md' : 'text-slate-500'}`}
                                         >
-                                            {t === 'inbox' ? 'الوارد' : t === 'students' ? 'الطلاب والحلقات' : 'الإعدادات'}
+                                            {t === 'inbox' ? `الوارد (${logs.filter(l => !l.reviewed).length})` : t === 'students' ? 'الطلاب والحلقات' : 'الإعدادات'}
                                         </button>
                                     ))}
                                 </div>
 
                                 {view === 'inbox' && (
                                     <div className="space-y-4">
-                                        {logs.map(log => {
+                                        {/* شريط أدوات تصفية الوارد */}
+                                        <div className="flex justify-between items-center bg-white p-4 rounded-2xl border border-slate-100 shadow-sm">
+                                            <div className="flex gap-2">
+                                                <button 
+                                                    onClick={() => setShowOnlyNewLogs(true)} 
+                                                    className={`px-4 py-2 rounded-xl text-xs font-bold transition-all ${showOnlyNewLogs ? 'bg-blue-600 text-white shadow-sm' : 'bg-slate-100 text-slate-600'}`}
+                                                >
+                                                    الجديدة فقط ({logs.filter(l => !l.reviewed).length})
+                                                </button>
+                                                <button 
+                                                    onClick={() => setShowOnlyNewLogs(false)} 
+                                                    className={`px-4 py-2 rounded-xl text-xs font-bold transition-all ${!showOnlyNewLogs ? 'bg-blue-600 text-white shadow-sm' : 'bg-slate-100 text-slate-600'}`}
+                                                >
+                                                    كل الكشوفات ({logs.length})
+                                                </button>
+                                            </div>
+                                            <span className="text-xs text-slate-400 font-bold">يتم تحديث القائمة فورياً</span>
+                                        </div>
+
+                                        {visibleLogs.map(log => {
                                             const absentees = log.records?.filter(r => r.status === 'absent') || [];
                                             const excused = log.records?.filter(r => r.status === 'excused') || [];
 
                                             return (
-                                                <div key={log.id} className="bg-white rounded-3xl border border-slate-100 shadow-sm p-5 space-y-4">
+                                                <div key={log.id} className={`bg-white rounded-3xl border border-slate-100 shadow-sm p-5 space-y-4 transition-all ${log.reviewed ? 'opacity-70 bg-slate-50/60' : ''}`}>
                                                     <div className="flex justify-between items-center border-b pb-3">
-                                                        <div>
+                                                        <div className="flex items-center gap-2">
                                                             <span className="bg-blue-100 text-blue-700 px-3 py-1 rounded-full text-xs font-bold">{log.group}</span>
-                                                            <span className="text-xs text-slate-400 mr-2">{log.date}</span>
+                                                            <span className="text-xs text-slate-400">{log.date}</span>
                                                         </div>
-                                                        <span className={`text-xs px-3 py-1 rounded-full font-bold ${log.reviewed ? 'bg-slate-100 text-slate-500' : 'bg-emerald-100 text-emerald-700'}`}>
-                                                            {log.reviewed ? 'تمت المراجعة' : 'جديد'}
-                                                        </span>
+                                                        <div className="flex items-center gap-2">
+                                                            <button 
+                                                                onClick={() => toggleLogReviewStatus(log.id, log.reviewed)}
+                                                                className={`text-xs px-3 py-1.5 rounded-xl font-bold transition-all cursor-pointer ${log.reviewed ? 'bg-slate-200 text-slate-700 hover:bg-slate-300' : 'bg-emerald-100 text-emerald-800 hover:bg-emerald-200'}`}
+                                                            >
+                                                                {log.reviewed ? '✓ مكتمل (إعادة للجديد)' : 'تمييز كمكتمل وإخفاء ✓'}
+                                                            </button>
+                                                            <button 
+                                                                onClick={() => deleteLog(log.id)} 
+                                                                title="حذف هذا الكشف من الوارد"
+                                                                className="text-xs text-red-500 bg-red-50 hover:bg-red-100 p-1.5 rounded-xl font-bold"
+                                                            >
+                                                                🗑️
+                                                            </button>
+                                                        </div>
                                                     </div>
 
                                                     <div className="space-y-2">
@@ -537,8 +590,8 @@
                                                                         <div className="text-xs text-slate-400" dir="ltr">{r.phone}</div>
                                                                     </div>
                                                                     <div className="flex gap-2">
-                                                                        <button onClick={() => handleConvertAbsence(log.id, r.studentId)} className="bg-amber-100 text-amber-900 px-3 py-1 rounded-xl text-xs font-bold">تحويل لمستئذن ⏱️</button>
-                                                                        <a href={`https://wa.me/${r.phone}?text=${encodeURIComponent(msg)}`} target="_blank" className="bg-emerald-500 text-white px-3 py-1 rounded-xl text-xs font-bold">واتساب 💬</a>
+                                                                        <button onClick={() => handleConvertAbsence(log.id, r.studentId)} className="bg-amber-100 text-amber-900 px-3 py-1 rounded-xl text-xs font-bold hover:bg-amber-200">تحويل لمستئذن ⏱️</button>
+                                                                        <a href={`https://wa.me/${r.phone}?text=${encodeURIComponent(msg)}`} target="_blank" className="bg-emerald-500 hover:bg-emerald-600 text-white px-3 py-1 rounded-xl text-xs font-bold">واتساب 💬</a>
                                                                     </div>
                                                                 </div>
                                                             );
@@ -552,7 +605,7 @@
                                                                         <div className="font-bold text-sm text-slate-800">{r.name} (مستئذن بعذر)</div>
                                                                         <div className="text-xs text-slate-400" dir="ltr">{r.phone}</div>
                                                                     </div>
-                                                                    <a href={`https://wa.me/${r.phone}?text=${encodeURIComponent(msg)}`} target="_blank" className="bg-emerald-500 text-white px-3 py-1 rounded-xl text-xs font-bold">واتساب 💬</a>
+                                                                    <a href={`https://wa.me/${r.phone}?text=${encodeURIComponent(msg)}`} target="_blank" className="bg-emerald-500 hover:bg-emerald-600 text-white px-3 py-1 rounded-xl text-xs font-bold">واتساب 💬</a>
                                                                 </div>
                                                             );
                                                         })}
@@ -564,7 +617,11 @@
                                                 </div>
                                             );
                                         })}
-                                        {logs.length === 0 && <div className="text-center py-20 text-slate-400 font-bold">لا توجد تقارير واردة حتى الآن</div>}
+                                        {visibleLogs.length === 0 && (
+                                            <div className="text-center py-20 text-slate-400 font-bold bg-white rounded-3xl border border-slate-100">
+                                                {showOnlyNewLogs ? "لا توجد كشوفات واردة جديدة بحاجة للمتابعة 🎉" : "لا توجد تقارير واردة"}
+                                            </div>
+                                        )}
                                     </div>
                                 )}
 
@@ -573,7 +630,7 @@
                                         <div className="flex flex-wrap justify-between items-center gap-3 bg-white p-5 rounded-3xl border border-slate-100 shadow-sm">
                                             <div className="flex gap-2">
                                                 <button onClick={() => setShowAddModal(true)} className="bg-blue-600 text-white px-4 py-2 rounded-xl text-xs font-bold">+ إضافة طالب</button>
-                                                <label className="bg-slate-100 text-slate-700 px-4 py-2 rounded-xl text-xs font-bold cursor-pointer">
+                                                <label className="bg-slate-100 text-slate-700 px-4 py-2 rounded-xl text-xs font-bold cursor-pointer hover:bg-slate-200">
                                                     📊 استيراد Excel
                                                     <input type="file" ref={fileInputRef} accept=".xlsx,.xls,.csv" onChange={handleExcelFileSelect} className="hidden" />
                                                 </label>
