@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>نظام إتقان - الإدارة السحابية المتقدمة</title>
+    <title>نظام إتقان - الإدارة السحابية الشاملة</title>
     
     <!-- Fonts -->
     <link href="https://fonts.googleapis.com/css2?family=Tajawal:wght@400;500;700;800&display=swap" rel="stylesheet">
@@ -24,7 +24,6 @@
     <style>
         body { font-family: 'Tajawal', sans-serif; background-color: #f8fafc; }
         .glass { background: rgba(255, 255, 255, 0.95); backdrop-filter: blur(10px); }
-        .tab-active { border-bottom: 3px solid #2563eb; color: #2563eb; }
         .modal-overlay { background: rgba(15, 23, 42, 0.65); backdrop-filter: blur(4px); }
         input[type="checkbox"] { accent-color: #2563eb; width: 1.15rem; height: 1.15rem; cursor: pointer; }
     </style>
@@ -73,48 +72,124 @@
             );
         };
 
+        const getHomeworkAlert = (missedCount) => {
+            const count = Number(missedCount) || 0;
+            if (count >= 15) return { level: 'exceeded', text: 'تجاوز الحد (15+)', color: 'bg-rose-900 text-white' };
+            if (count >= 14) return { level: 'final', text: 'التنبيه النهائي (14)', color: 'bg-red-600 text-white' };
+            if (count >= 10) return { level: 'second', text: 'التنبيه الثاني (10)', color: 'bg-amber-600 text-white' };
+            if (count >= 5) return { level: 'first', text: 'التنبيه الأول (5)', color: 'bg-yellow-100 text-yellow-800' };
+            return { level: 'none', text: 'منتظم', color: 'bg-emerald-50 text-emerald-700' };
+        };
+
+        const getAbsenceCategory = (absences) => {
+            const c = Number(absences) || 0;
+            if (c >= 6) return 'danger';
+            if (c >= 3) return 'warning';
+            return 'normal';
+        };
+
         const App = () => {
             const [role, setRole] = useState(null);
             const [view, setView] = useState('inbox');
+            const [inboxSubTab, setInboxSubTab] = useState('attendance');
             const [pin, setPin] = useState('');
             const [students, setStudents] = useState([]);
+            const [teachers, setTeachers] = useState([]);
             const [logs, setLogs] = useState([]);
+            const [homeworkLogs, setHomeworkLogs] = useState([]);
+            const [pledgeLogs, setPledgeLogs] = useState([]);
+            const [teacherLogs, setTeacherLogs] = useState([]);
+            
             const [settings, setSettings] = useState({ 
                 absence_template: "عزيزي ولي أمر الطالب {student_name}، نفيدكم بغيابه اليوم {date}. إجمالي غياباته: {absence_count}",
-                excused_template: "عزيزي ولي أمر الطالب {student_name}، تم تسجيل استئذان الطالب اليوم {date} بعذر مقبول."
+                excused_template: "عزيزي ولي أمر الطالب {student_name}، تم تسجيل استئذان الطالب اليوم {date} بعذر مقبول.",
+                homework_template: "عزيزي ولي أمر الطالب {student_name}، نود إشعاركم بعدم تسليمه لواجب اليوم {date}. إجمالي مرات عدم التسليم: {missed_count} واجبات ({alert_status}). نأمل متابعته حرصاً على مستواه."
             });
             const [toast, setToast] = useState(null);
 
+            // رصد المسجل
             const [activeMonitorGroup, setActiveMonitorGroup] = useState(null);
+            const [monitorMode, setMonitorMode] = useState('attendance');
             const [attendanceBatch, setAttendanceBatch] = useState({});
+            const [homeworkBatch, setHomeworkBatch] = useState({});
 
+            // إدارة الطلاب
             const [showAddModal, setShowAddModal] = useState(false);
             const [editingStudent, setEditingStudent] = useState(null);
-            const [newStudent, setNewStudent] = useState({ name: '', phone: '', group: '', active: true });
+            const [newStudent, setNewStudent] = useState({ name: '', phone: '', group: '', active: true, pledges: 0, missedHomework: 0 });
             const [importPreview, setImportPreview] = useState(null);
-
             const [selectedSids, setSelectedSids] = useState([]);
             const [filterGroup, setFilterGroup] = useState('ALL');
+            const [filterAbsence, setFilterAbsence] = useState('ALL');
+            const [filterHomework, setFilterHomework] = useState('ALL');
             const [search, setSearch] = useState('');
             const fileInputRef = useRef(null);
+
+            // التعهدات
+            const [showPledgeModal, setShowPledgeModal] = useState(null);
+            const [pledgeReason, setPledgeReason] = useState('');
+
+            // المعلمين
+            const [showAddTeacherModal, setShowAddTeacherModal] = useState(false);
+            const [newTeacher, setNewTeacher] = useState({ name: '', phone: '', subject: '' });
+            const [teacherAttendanceBatch, setTeacherAttendanceBatch] = useState({});
 
             const showToast = (message, type = 'success') => setToast({ message, type });
 
             useEffect(() => {
                 const unsubStudents = db.collection('students').onSnapshot(snap => {
-                    setStudents(snap.docs.map(doc => ({ id: doc.id, ...doc.data() })));
+                    setStudents(snap.docs.map(doc => ({ id: doc.id, pledges: 0, missedHomework: 0, absences: 0, ...doc.data() })));
                 }, () => showToast("يرجى التأكد من تفعيل Firestore Database", "error"));
+
+                const unsubTeachers = db.collection('teachers').onSnapshot(snap => {
+                    setTeachers(snap.docs.map(doc => ({ id: doc.id, presentCount: 0, absentCount: 0, excusedCount: 0, ...doc.data() })));
+                });
 
                 const unsubLogs = db.collection('attendance_logs').orderBy('date', 'desc').onSnapshot(snap => {
                     setLogs(snap.docs.map(doc => ({ id: doc.id, ...doc.data() })));
-                }, err => console.error(err));
-
-                const unsubSettings = db.collection('settings').doc('app_config').onSnapshot(doc => {
-                    if (doc.exists) setSettings(doc.data());
                 });
 
-                return () => { unsubStudents(); unsubLogs(); unsubSettings(); };
+                const unsubHwLogs = db.collection('homework_logs').orderBy('date', 'desc').onSnapshot(snap => {
+                    setHomeworkLogs(snap.docs.map(doc => ({ id: doc.id, ...doc.data() })));
+                });
+
+                const unsubTeacherLogs = db.collection('teacher_attendance_logs').orderBy('date', 'desc').onSnapshot(snap => {
+                    setTeacherLogs(snap.docs.map(doc => ({ id: doc.id, ...doc.data() })));
+                });
+
+                const unsubPledges = db.collection('pledges_logs').orderBy('timestamp', 'desc').onSnapshot(snap => {
+                    setPledgeLogs(snap.docs.map(doc => ({ id: doc.id, ...doc.data() })));
+                });
+
+                const unsubSettings = db.collection('settings').doc('app_config').onSnapshot(doc => {
+                    if (doc.exists) setSettings(prev => ({ ...prev, ...doc.data() }));
+                });
+
+                return () => {
+                    unsubStudents();
+                    unsubTeachers();
+                    unsubLogs();
+                    unsubHwLogs();
+                    unsubTeacherLogs();
+                    unsubPledges();
+                    unsubSettings();
+                };
             }, []);
+
+            useEffect(() => {
+                const today = getTodayDateStr();
+                const todayLog = teacherLogs.find(l => l.date === today);
+                const map = {};
+                teachers.forEach(t => {
+                    if (todayLog && todayLog.records) {
+                        const rec = todayLog.records.find(r => String(r.teacherId) === String(t.id));
+                        map[t.id] = rec ? rec.status : 'present';
+                    } else {
+                        map[t.id] = 'present';
+                    }
+                });
+                setTeacherAttendanceBatch(map);
+            }, [teachers, teacherLogs]);
 
             const groups = useMemo(() => [...new Set(students.map(s => String(s.group).trim()))].filter(Boolean), [students]);
 
@@ -130,28 +205,43 @@
                 setPin('');
                 setActiveMonitorGroup(null);
                 setAttendanceBatch({});
+                setHomeworkBatch({});
                 setEditingStudent(null);
                 setShowAddModal(false);
+                setShowPledgeModal(null);
+                setShowAddTeacherModal(false);
             };
 
-            const handleStartGroupAttendance = (groupName) => {
+            const handleStartGroup = (groupName) => {
                 const today = getTodayDateStr();
-                const sessionId = `${groupName.replace(/\s+/g, '_')}_${today}`;
-                const existingLog = logs.find(l => l.id === sessionId);
+                const attSessionId = `${groupName.replace(/\s+/g, '_')}_${today}`;
+                const hwSessionId = `hw_${groupName.replace(/\s+/g, '_')}_${today}`;
+                
+                const existingAttLog = logs.find(l => l.id === attSessionId);
+                const existingHwLog = homeworkLogs.find(l => l.id === hwSessionId);
 
-                const initialMap = {};
+                const initialAttMap = {};
+                const initialHwMap = {};
                 const activeGroupStudents = students.filter(s => String(s.group).trim() === groupName && s.active);
 
                 activeGroupStudents.forEach(s => {
-                    if (existingLog) {
-                        const rec = existingLog.records?.find(r => String(r.studentId) === String(s.id));
-                        initialMap[s.id] = rec ? rec.status : 'present';
+                    if (existingAttLog) {
+                        const rec = existingAttLog.records?.find(r => String(r.studentId) === String(s.id));
+                        initialAttMap[s.id] = rec ? rec.status : 'present';
                     } else {
-                        initialMap[s.id] = 'present';
+                        initialAttMap[s.id] = 'present';
+                    }
+
+                    if (existingHwLog) {
+                        const rec = existingHwLog.records?.find(r => String(r.studentId) === String(s.id));
+                        initialHwMap[s.id] = rec ? rec.status : 'submitted';
+                    } else {
+                        initialHwMap[s.id] = 'submitted';
                     }
                 });
 
-                setAttendanceBatch(initialMap);
+                setAttendanceBatch(initialAttMap);
+                setHomeworkBatch(initialHwMap);
                 setActiveMonitorGroup(groupName);
             };
 
@@ -160,7 +250,6 @@
                 const today = getTodayDateStr();
                 const sessionId = `${groupName.replace(/\s+/g, '_')}_${today}`;
                 const existingLog = logs.find(l => l.id === sessionId);
-
                 const activeGroupStudents = students.filter(s => String(s.group).trim() === groupName && s.active);
 
                 const snapshotRecords = activeGroupStudents.map(s => ({
@@ -168,8 +257,7 @@
                     name: s.name,
                     phone: s.phone,
                     group: s.group,
-                    status: attendanceBatch[s.id] || 'present',
-                    contactStatus: 'pending'
+                    status: attendanceBatch[s.id] || 'present'
                 }));
 
                 try {
@@ -197,17 +285,75 @@
                         group: groupName,
                         date: today,
                         timestamp: firebase.firestore.FieldValue.serverTimestamp(),
-                        records: snapshotRecords,
-                        reviewed: false
+                        records: snapshotRecords
                     });
 
                     await batch.commit();
-                    showToast(existingLog ? "تم تعديل كشف اليوم بنجاح" : "تم اعتماد كشف التحضير سحابياً");
+                    showToast(existingLog ? "تم تحديث كشف الحضور بنجاح" : "تم اعتماد كشف الحضور سحابياً");
                     setActiveMonitorGroup(null);
-                    setAttendanceBatch({});
                 } catch (err) {
-                    console.error(err);
-                    showToast("حدث خطأ أثناء الحفظ في السحابة", "error");
+                    showToast("حدث خطأ أثناء الحفظ", "error");
+                }
+            };
+
+            const submitHomework = async () => {
+                const groupName = activeMonitorGroup;
+                const today = getTodayDateStr();
+                const sessionId = `hw_${groupName.replace(/\s+/g, '_')}_${today}`;
+                const existingLog = homeworkLogs.find(l => l.id === sessionId);
+                const activeGroupStudents = students.filter(s => String(s.group).trim() === groupName && s.active);
+
+                const snapshotRecords = activeGroupStudents.map(s => ({
+                    studentId: String(s.id),
+                    name: s.name,
+                    phone: s.phone,
+                    group: s.group,
+                    status: homeworkBatch[s.id] || 'submitted'
+                }));
+
+                try {
+                    const batch = db.batch();
+
+                    if (existingLog && existingLog.records) {
+                        existingLog.records.forEach(r => {
+                            if (r.status === 'missed') {
+                                const ref = db.collection('students').doc(r.studentId);
+                                batch.update(ref, { missedHomework: firebase.firestore.FieldValue.increment(-1) });
+                            }
+                        });
+                    }
+
+                    snapshotRecords.forEach(r => {
+                        if (r.status === 'missed') {
+                            const ref = db.collection('students').doc(r.studentId);
+                            batch.update(ref, { missedHomework: firebase.firestore.FieldValue.increment(1) });
+                        }
+                    });
+
+                    const logRef = db.collection('homework_logs').doc(sessionId);
+                    batch.set(logRef, {
+                        id: sessionId,
+                        group: groupName,
+                        date: today,
+                        timestamp: firebase.firestore.FieldValue.serverTimestamp(),
+                        records: snapshotRecords
+                    });
+
+                    await batch.commit();
+                    showToast(existingLog ? "تم تحديث كشف الواجبات" : "تم اعتماد كشف الواجبات سحابياً");
+                    setActiveMonitorGroup(null);
+                } catch (err) {
+                    showToast("حدث خطأ أثناء حفظ الواجبات", "error");
+                }
+            };
+
+            const handleDeleteHwLog = async (logId) => {
+                if (!confirm("هل تريد إزالة كشف الواجبات هذا بالكامل من الوارد؟")) return;
+                try {
+                    await db.collection('homework_logs').doc(logId).delete();
+                    showToast("تمت إزالة كشف الواجبات");
+                } catch (err) {
+                    showToast("تعذر حذف الكشف", "error");
                 }
             };
 
@@ -230,11 +376,8 @@
                     const logData = logDoc.data();
                     const updatedRecords = logData.records.filter(r => String(r.studentId) !== String(studentId));
 
-                    if (updatedRecords.length === 0) {
-                        await logRef.delete();
-                    } else {
-                        await logRef.update({ records: updatedRecords });
-                    }
+                    if (updatedRecords.length === 0) await logRef.delete();
+                    else await logRef.update({ records: updatedRecords });
                     showToast("تمت إزالة الطالب من الوارد");
                 } catch (err) {
                     showToast("تعذر تحديث الكشف", "error");
@@ -268,6 +411,132 @@
                 }
             };
 
+            const handleAddPledge = async (e) => {
+                e.preventDefault();
+                if (!showPledgeModal || !pledgeReason.trim()) return;
+
+                try {
+                    const batch = db.batch();
+                    const studentRef = db.collection('students').doc(showPledgeModal.id);
+                    batch.update(studentRef, {
+                        pledges: firebase.firestore.FieldValue.increment(1)
+                    });
+
+                    const pledgeLogRef = db.collection('pledges_logs').doc();
+                    batch.set(pledgeLogRef, {
+                        studentId: showPledgeModal.id,
+                        studentName: showPledgeModal.name,
+                        group: showPledgeModal.group,
+                        reason: pledgeReason.trim(),
+                        date: getTodayDateStr(),
+                        timestamp: firebase.firestore.FieldValue.serverTimestamp()
+                    });
+
+                    await batch.commit();
+                    showToast(`تم تسجيل التعهد التأديبي على الطالب ${showPledgeModal.name}`);
+                    setShowPledgeModal(null);
+                    setPledgeReason('');
+                } catch (err) {
+                    showToast("تعذر تسجيل التعهد", "error");
+                }
+            };
+
+            const handleResetPledges = async (studentId, studentName) => {
+                if (!confirm(`هل تريد تصفير التعهدات للطالب ${studentName}؟`)) return;
+                try {
+                    await db.collection('students').doc(studentId).update({ pledges: 0 });
+                    showToast("تم تصفير تعهدات الطالب");
+                } catch (err) {
+                    showToast("تعذر التصفير", "error");
+                }
+            };
+
+            const handleResetHomework = async (studentId, studentName) => {
+                if (!confirm(`هل تريد تصفير عداد عدم تسليم الواجبات للطالب ${studentName}؟`)) return;
+                try {
+                    await db.collection('students').doc(studentId).update({ missedHomework: 0 });
+                    showToast("تم تصفير واجبات الطالب");
+                } catch (err) {
+                    showToast("تعذر التصفير", "error");
+                }
+            };
+
+            const handleAddTeacher = async (e) => {
+                e.preventDefault();
+                if (!newTeacher.name.trim()) return;
+                try {
+                    await db.collection('teachers').add({
+                        name: newTeacher.name.trim(),
+                        phone: formatSaudiPhone(newTeacher.phone),
+                        subject: newTeacher.subject.trim() || 'عام',
+                        presentCount: 0,
+                        absentCount: 0,
+                        excusedCount: 0
+                    });
+                    setNewTeacher({ name: '', phone: '', subject: '' });
+                    setShowAddTeacherModal(false);
+                    showToast("تمت إضافة المعلم بنجاح");
+                } catch (err) {
+                    showToast("تعذر حفظ بيانات المعلم", "error");
+                }
+            };
+
+            const handleDeleteTeacher = async (id, name) => {
+                if (!confirm(`حذف المعلم ${name} نهائياً؟`)) return;
+                try {
+                    await db.collection('teachers').doc(id).delete();
+                    showToast("تم حذف المعلم");
+                } catch (err) {
+                    showToast("تعذر الحذف", "error");
+                }
+            };
+
+            const submitTeacherAttendance = async () => {
+                const today = getTodayDateStr();
+                const logId = `teachers_${today}`;
+                const existingLog = teacherLogs.find(l => l.id === logId);
+
+                const snapshotRecords = teachers.map(t => ({
+                    teacherId: String(t.id),
+                    name: t.name,
+                    subject: t.subject,
+                    status: teacherAttendanceBatch[t.id] || 'present'
+                }));
+
+                try {
+                    const batch = db.batch();
+
+                    if (existingLog && existingLog.records) {
+                        existingLog.records.forEach(r => {
+                            const ref = db.collection('teachers').doc(r.teacherId);
+                            if (r.status === 'present') batch.update(ref, { presentCount: firebase.firestore.FieldValue.increment(-1) });
+                            else if (r.status === 'absent') batch.update(ref, { absentCount: firebase.firestore.FieldValue.increment(-1) });
+                            else if (r.status === 'excused') batch.update(ref, { excusedCount: firebase.firestore.FieldValue.increment(-1) });
+                        });
+                    }
+
+                    snapshotRecords.forEach(r => {
+                        const ref = db.collection('teachers').doc(r.teacherId);
+                        if (r.status === 'present') batch.update(ref, { presentCount: firebase.firestore.FieldValue.increment(1) });
+                        else if (r.status === 'absent') batch.update(ref, { absentCount: firebase.firestore.FieldValue.increment(1) });
+                        else if (r.status === 'excused') batch.update(ref, { excusedCount: firebase.firestore.FieldValue.increment(1) });
+                    });
+
+                    const logRef = db.collection('teacher_attendance_logs').doc(logId);
+                    batch.set(logRef, {
+                        id: logId,
+                        date: today,
+                        timestamp: firebase.firestore.FieldValue.serverTimestamp(),
+                        records: snapshotRecords
+                    });
+
+                    await batch.commit();
+                    showToast("تم حفظ تحضير المعلمين بنجاح (بدون إرسال رسائل)");
+                } catch (err) {
+                    showToast("تعذر حفظ تحضير المعلمين", "error");
+                }
+            };
+
             const handleExcelFileSelect = (e) => {
                 const file = e.target.files[0];
                 if (!file) return;
@@ -294,6 +563,8 @@
                                 phone,
                                 group,
                                 absences: parseInt(clean['غيابات'] || 0) || 0,
+                                missedHomework: parseInt(clean['واجبات'] || clean['عدم تسليم الواجبات'] || 0) || 0,
+                                pledges: parseInt(clean['تعهدات'] || 0) || 0,
                                 active: isActive
                             };
                         }).filter(s => s.name && s.name.length > 1);
@@ -324,10 +595,11 @@
                     showToast(`تم استيراد ${importPreview.length} طالب سحابياً`);
                     setImportPreview(null);
                 } catch (err) {
-                    showToast("خطأ أثناء الحفظ في قاعدة البيانات", "error");
+                    showToast("خطأ أثناء الحفظ", "error");
                 }
             };
 
+            // تصدير التقرير إلى Excel متضمناً تواريخ أيام الغياب الفعلية
             const exportAbsencesToExcel = () => {
                 if (filteredStudents.length === 0) {
                     showToast("لا توجد بيانات طلاب لتصديرها", "error");
@@ -336,9 +608,15 @@
 
                 const exportData = filteredStudents.map((s, idx) => {
                     const abs = Number(s.absences) || 0;
-                    let statusLabel = "طبيعي";
-                    if (abs >= 6) statusLabel = "خطر (إنذار أحمر)";
-                    else if (abs >= 3) statusLabel = "تحذير (إنذار أصفر)";
+                    const hw = Number(s.missedHomework) || 0;
+                    const hwAlert = getHomeworkAlert(hw);
+
+                    // استخراج تواريخ الغياب الدقيقة من كشوفات التحضير
+                    const absenceDates = logs
+                        .filter(l => l.records && l.records.some(r => String(r.studentId) === String(s.id) && r.status === 'absent'))
+                        .map(l => l.date)
+                        .sort()
+                        .join('، ');
 
                     return {
                         "م": idx + 1,
@@ -346,18 +624,21 @@
                         "الحلقة / الفصل": s.group,
                         "رقم الجوال": s.phone,
                         "مجموع الغيابات": abs,
-                        "حالة الالتزام": statusLabel,
+                        "تواريخ أيام الغياب": absenceDates || (abs > 0 ? "غيابات يدوية سابقة" : "لا يوجد"),
+                        "عدم تسليم الواجبات": hw,
+                        "تنبيه الواجبات": hwAlert.text,
+                        "عدد التعهدات": s.pledges || 0,
                         "حالة القيد": s.active ? "مستمر" : "منقطع"
                     };
                 });
 
                 const ws = XLSX.utils.json_to_sheet(exportData);
                 const wb = XLSX.utils.book_new();
-                XLSX.utils.book_append_sheet(wb, ws, "تقرير الغيابات");
+                XLSX.utils.book_append_sheet(wb, ws, "التقرير الشامل");
                 
-                const fileName = `تقرير_الغيابات_${filterGroup === 'ALL' ? 'الكل' : filterGroup}_${getTodayDateStr()}.xlsx`;
+                const fileName = `تقرير_الطلاب_${filterGroup === 'ALL' ? 'الكل' : filterGroup}_${getTodayDateStr()}.xlsx`;
                 XLSX.writeFile(wb, fileName);
-                showToast("تم تصدير تقرير الغيابات بنجاح");
+                showToast("تم تصدير التقرير الشامل متضمناً تواريخ الغياب بنجاح");
             };
 
             const handleAddManualStudent = async (e) => {
@@ -370,9 +651,11 @@
                         phone: formatSaudiPhone(newStudent.phone),
                         group: newStudent.group.trim() || 'عام',
                         absences: 0,
+                        missedHomework: 0,
+                        pledges: 0,
                         active: newStudent.active
                     });
-                    setNewStudent({ name: '', phone: '', group: '', active: true });
+                    setNewStudent({ name: '', phone: '', group: '', active: true, pledges: 0, missedHomework: 0 });
                     setShowAddModal(false);
                     showToast("تمت إضافة الطالب بنجاح");
                 } catch (err) {
@@ -388,6 +671,8 @@
                         phone: formatSaudiPhone(editingStudent.phone),
                         group: editingStudent.group.trim(),
                         absences: parseInt(editingStudent.absences || 0),
+                        missedHomework: parseInt(editingStudent.missedHomework || 0),
+                        pledges: parseInt(editingStudent.pledges || 0),
                         active: editingStudent.active === true || editingStudent.active === 'true'
                     });
                     setEditingStudent(null);
@@ -412,9 +697,7 @@
                 if (!confirm(`حذف ${selectedSids.length} طالب محددين نهائياً؟`)) return;
                 try {
                     const batch = db.batch();
-                    selectedSids.forEach(id => {
-                        batch.delete(db.collection('students').doc(id));
-                    });
+                    selectedSids.forEach(id => batch.delete(db.collection('students').doc(id)));
                     await batch.commit();
                     setSelectedSids([]);
                     showToast("تم حذف الطلاب المحددين");
@@ -430,20 +713,43 @@
                 return <span className="bg-emerald-100 text-emerald-700 px-2.5 py-0.5 rounded-md text-xs font-bold">طبيعي</span>;
             };
 
+            const getPledgeBadge = (count) => {
+                const c = Number(count) || 0;
+                if (c >= 3) return <span className="bg-purple-100 text-purple-700 px-2.5 py-0.5 rounded-md text-xs font-bold">{c} تعهدات</span>;
+                if (c >= 1) return <span className="bg-amber-100 text-amber-700 px-2.5 py-0.5 rounded-md text-xs font-bold">{c} تعهد</span>;
+                return <span className="bg-slate-100 text-slate-500 px-2 py-0.5 rounded-md text-xs">لا يوجد</span>;
+            };
+
+            // التصفية الشاملة مع فلاتر الغياب وحالة الواجبات
             const filteredStudents = useMemo(() => {
                 return students.filter(s => {
                     const matchGroup = filterGroup === 'ALL' || String(s.group).trim() === filterGroup;
                     const matchSearch = s.name.includes(search) || s.phone.includes(search);
-                    return matchGroup && matchSearch;
+                    
+                    // فلترة حالة الغياب
+                    let matchAbsence = true;
+                    const absCategory = getAbsenceCategory(s.absences);
+                    if (filterAbsence === 'NORMAL') matchAbsence = absCategory === 'normal';
+                    else if (filterAbsence === 'WARNING') matchAbsence = absCategory === 'warning';
+                    else if (filterAbsence === 'DANGER') matchAbsence = absCategory === 'danger';
+
+                    // فلترة حالة الواجبات
+                    let matchHomework = true;
+                    const hwAlert = getHomeworkAlert(s.missedHomework);
+                    if (filterHomework !== 'ALL') {
+                        matchHomework = hwAlert.level === filterHomework;
+                    }
+
+                    return matchGroup && matchSearch && matchAbsence && matchHomework;
                 });
-            }, [students, filterGroup, search]);
+            }, [students, filterGroup, filterAbsence, filterHomework, search]);
 
             if (!role) return (
                 <div className="min-h-screen flex items-center justify-center p-4 bg-slate-900">
                     <div className="max-w-md w-full bg-white rounded-3xl shadow-2xl p-8 space-y-6 text-center">
                         <div className="w-16 h-16 bg-blue-600 text-white text-3xl font-bold rounded-2xl flex items-center justify-center mx-auto mb-4 shadow-lg">✓</div>
                         <h1 className="text-2xl font-extrabold text-slate-800">منصة إتقان السحابية</h1>
-                        <p className="text-slate-400 text-sm">مزامنة سحابية فورية بين المشرف والمسجل</p>
+                        <p className="text-slate-400 text-sm">مزامنة سحابية: الغياب، الواجبات، التعهدات، وتحضير المعلمين</p>
                         <div className="space-y-4">
                             <input 
                                 type="password" 
@@ -453,7 +759,7 @@
                                 onChange={e => setPin(e.target.value)}
                                 onKeyDown={e => e.key === 'Enter' && handleLogin()}
                             />
-                            <button onClick={handleLogin} className="w-full bg-blue-600 hover:bg-blue-700 text-white p-4 rounded-2xl font-bold text-lg shadow-lg">
+                            <button onClick={handleLogin} className="w-full bg-blue-600 hover:bg-blue-700 text-white p-4 rounded-2xl font-bold text-lg shadow-lg transition-all">
                                 تسجيل الدخول
                             </button>
                         </div>
@@ -462,13 +768,13 @@
             );
 
             return (
-                <div className="min-h-screen pb-24 max-w-5xl mx-auto">
+                <div className="min-h-screen pb-24 max-w-6xl mx-auto">
                     <header className="sticky top-0 z-30 glass border-b border-slate-200 px-6 py-4 flex justify-between items-center shadow-sm">
                         <div className="flex items-center gap-2">
                             <span className="bg-blue-600 text-white px-3 py-1.5 rounded-xl font-bold text-sm">إتقان السحابي</span>
-                            <span className="font-bold text-slate-700">{role === 'supervisor' ? 'لوحة تحكم المشرف' : 'بوابة مسجل الغياب'}</span>
+                            <span className="font-bold text-slate-700">{role === 'supervisor' ? 'لوحة تحكم المشرف' : 'بوابة الرصد والتحضير'}</span>
                         </div>
-                        <button onClick={logout} className="text-xs font-bold text-red-500 hover:bg-red-50 px-3 py-2 rounded-xl">تسجيل الخروج</button>
+                        <button onClick={logout} className="text-xs font-bold text-red-500 hover:bg-red-50 px-3 py-2 rounded-xl transition-all">تسجيل الخروج</button>
                     </header>
 
                     <main className="p-4 md:p-6">
@@ -478,8 +784,8 @@
                                     <div className="space-y-4">
                                         <div className="bg-blue-50 p-5 rounded-2xl border border-blue-100 flex justify-between items-center">
                                             <div>
-                                                <h2 className="font-bold text-blue-900 text-lg">قائمة الحلقات</h2>
-                                                <p className="text-xs text-blue-600 mt-1">اضغط على الحلقة لبدء رصد التحضير</p>
+                                                <h2 className="font-bold text-blue-900 text-lg">قائمة الحلقات والصفوف</h2>
+                                                <p className="text-xs text-blue-600 mt-1">اختر الحلقة لبدء رصد الحضور أو متابعة الواجبات</p>
                                             </div>
                                             <span className="bg-blue-600 text-white text-xs font-bold px-3 py-1.5 rounded-xl">{groups.length} حلقات</span>
                                         </div>
@@ -487,17 +793,22 @@
                                         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
                                             {groups.map(g => {
                                                 const count = students.filter(s => String(s.group).trim() === g && s.active).length;
-                                                const isDoneToday = logs.some(l => l.id === `${g.replace(/\s+/g, '_')}_${getTodayDateStr()}`);
+                                                const isAttDone = logs.some(l => l.id === `${g.replace(/\s+/g, '_')}_${getTodayDateStr()}`);
+                                                const isHwDone = homeworkLogs.some(l => l.id === `hw_${g.replace(/\s+/g, '_')}_${getTodayDateStr()}`);
+
                                                 return (
                                                     <div 
                                                         key={g} 
-                                                        onClick={() => handleStartGroupAttendance(g)}
+                                                        onClick={() => handleStartGroup(g)}
                                                         className="bg-white p-5 rounded-3xl border border-slate-100 hover:border-blue-400 hover:shadow-md cursor-pointer flex justify-between items-center transition-all"
                                                     >
                                                         <div>
                                                             <h3 className="font-bold text-slate-800 text-lg">{g}</h3>
                                                             <p className="text-xs text-slate-400 mt-1">{count} طالب نشط</p>
-                                                            {isDoneToday && <span className="inline-block mt-2 text-[10px] bg-emerald-100 text-emerald-700 font-bold px-2 py-0.5 rounded">تم الرصد اليوم (اضغط للتعديل)</span>}
+                                                            <div className="flex gap-2 mt-2">
+                                                                {isAttDone && <span className="text-[10px] bg-emerald-100 text-emerald-700 font-bold px-2 py-0.5 rounded">التحضير مسجل ✓</span>}
+                                                                {isHwDone && <span className="text-[10px] bg-purple-100 text-purple-700 font-bold px-2 py-0.5 rounded">الواجبات مسجلة ✓</span>}
+                                                            </div>
                                                         </div>
                                                         <span className="text-blue-600 font-bold text-xl">←</span>
                                                     </div>
@@ -512,121 +823,240 @@
                                                 → رجوع للحلقات
                                             </button>
                                             <h2 className="font-bold text-lg text-slate-800">{activeMonitorGroup}</h2>
-                                            <div className="flex gap-2 text-xs font-bold">
-                                                <span className="text-red-500">{Object.values(attendanceBatch).filter(v => v === 'absent').length} غائب</span>
-                                                <span className="text-amber-600">{Object.values(attendanceBatch).filter(v => v === 'excused').length} مستئذن</span>
+                                            
+                                            <div className="flex bg-slate-100 p-1 rounded-xl">
+                                                <button 
+                                                    onClick={() => setMonitorMode('attendance')}
+                                                    className={`px-3 py-1 rounded-lg text-xs font-bold transition-all ${monitorMode === 'attendance' ? 'bg-blue-600 text-white shadow-sm' : 'text-slate-600'}`}
+                                                >
+                                                    الحضور
+                                                </button>
+                                                <button 
+                                                    onClick={() => setMonitorMode('homework')}
+                                                    className={`px-3 py-1 rounded-lg text-xs font-bold transition-all ${monitorMode === 'homework' ? 'bg-purple-600 text-white shadow-sm' : 'text-slate-600'}`}
+                                                >
+                                                    الواجبات
+                                                </button>
                                             </div>
                                         </div>
 
-                                        <div className="bg-white rounded-3xl shadow-sm border border-slate-100 overflow-hidden divide-y divide-slate-50">
-                                            {students.filter(s => String(s.group).trim() === activeMonitorGroup && s.active).map(s => {
-                                                const currentStatus = attendanceBatch[s.id] || 'present';
-                                                return (
-                                                    <div key={s.id} className={`p-4 flex justify-between items-center transition-colors ${currentStatus === 'absent' ? 'bg-red-50' : currentStatus === 'excused' ? 'bg-amber-50' : ''}`}>
-                                                        <div>
-                                                            <span className="font-bold text-base text-slate-800">{s.name}</span>
-                                                            <span className="text-xs text-slate-400 block">الغيابات السابقة: {s.absences || 0}</span>
-                                                        </div>
-                                                        <div className="flex gap-1 bg-slate-100 p-1 rounded-xl">
-                                                            <button onClick={() => setAttendanceBatch(prev => ({...prev, [s.id]: 'present'}))} className={`px-3 py-1.5 rounded-lg text-xs font-bold ${currentStatus === 'present' ? 'bg-emerald-600 text-white' : 'text-slate-600'}`}>حاضر</button>
-                                                            <button onClick={() => setAttendanceBatch(prev => ({...prev, [s.id]: 'excused'}))} className={`px-3 py-1.5 rounded-lg text-xs font-bold ${currentStatus === 'excused' ? 'bg-amber-500 text-white' : 'text-slate-600'}`}>مستئذن</button>
-                                                            <button onClick={() => setAttendanceBatch(prev => ({...prev, [s.id]: 'absent'}))} className={`px-3 py-1.5 rounded-lg text-xs font-bold ${currentStatus === 'absent' ? 'bg-red-600 text-white' : 'text-slate-600'}`}>غائب</button>
-                                                        </div>
-                                                    </div>
-                                                );
-                                            })}
-                                        </div>
+                                        {monitorMode === 'attendance' && (
+                                            <>
+                                                <div className="bg-white rounded-3xl shadow-sm border border-slate-100 overflow-hidden divide-y divide-slate-50">
+                                                    {students.filter(s => String(s.group).trim() === activeMonitorGroup && s.active).map(s => {
+                                                        const currentStatus = attendanceBatch[s.id] || 'present';
+                                                        return (
+                                                            <div key={s.id} className={`p-4 flex justify-between items-center transition-colors ${currentStatus === 'absent' ? 'bg-red-50' : currentStatus === 'excused' ? 'bg-amber-50' : ''}`}>
+                                                                <div>
+                                                                    <span className="font-bold text-base text-slate-800">{s.name}</span>
+                                                                    <span className="text-xs text-slate-400 block">غيابات: {s.absences || 0} | واجبات غير مسلمة: {s.missedHomework || 0}</span>
+                                                                </div>
+                                                                <div className="flex gap-1 bg-slate-100 p-1 rounded-xl">
+                                                                    <button onClick={() => setAttendanceBatch(prev => ({...prev, [s.id]: 'present'}))} className={`px-3 py-1.5 rounded-lg text-xs font-bold ${currentStatus === 'present' ? 'bg-emerald-600 text-white' : 'text-slate-600'}`}>حاضر</button>
+                                                                    <button onClick={() => setAttendanceBatch(prev => ({...prev, [s.id]: 'excused'}))} className={`px-3 py-1.5 rounded-lg text-xs font-bold ${currentStatus === 'excused' ? 'bg-amber-500 text-white' : 'text-slate-600'}`}>مستئذن</button>
+                                                                    <button onClick={() => setAttendanceBatch(prev => ({...prev, [s.id]: 'absent'}))} className={`px-3 py-1.5 rounded-lg text-xs font-bold ${currentStatus === 'absent' ? 'bg-red-600 text-white' : 'text-slate-600'}`}>غائب</button>
+                                                                </div>
+                                                            </div>
+                                                        );
+                                                    })}
+                                                </div>
+                                                <button onClick={submitAttendance} className="w-full bg-emerald-600 hover:bg-emerald-700 text-white py-4 rounded-2xl font-bold shadow-lg transition-all">
+                                                    اعتماد كشف التحضير سحابياً ✓
+                                                </button>
+                                            </>
+                                        )}
 
-                                        <button onClick={submitAttendance} className="w-full bg-emerald-600 hover:bg-emerald-700 text-white py-4 rounded-2xl font-bold shadow-lg">
-                                            اعتماد وإرسال الكشف سحابياً ✓
-                                        </button>
+                                        {monitorMode === 'homework' && (
+                                            <>
+                                                <div className="bg-purple-50 p-3 rounded-2xl text-xs text-purple-900 border border-purple-100 flex justify-between items-center">
+                                                    <span>رصد تسليم الواجبات لليوم (الحد الأقصى لعدم التسليم 15 واجباً)[cite: 1]</span>
+                                                    <span className="font-bold text-purple-700">لم يسلموا: {Object.values(homeworkBatch).filter(v => v === 'missed').length}</span>
+                                                </div>
+                                                <div className="bg-white rounded-3xl shadow-sm border border-slate-100 overflow-hidden divide-y divide-slate-50">
+                                                    {students.filter(s => String(s.group).trim() === activeMonitorGroup && s.active).map(s => {
+                                                        const currentStatus = homeworkBatch[s.id] || 'submitted';
+                                                        const alert = getHomeworkAlert(s.missedHomework || 0);
+
+                                                        return (
+                                                            <div key={s.id} className={`p-4 flex justify-between items-center transition-colors ${currentStatus === 'missed' ? 'bg-rose-50' : ''}`}>
+                                                                <div>
+                                                                    <span className="font-bold text-base text-slate-800">{s.name}</span>
+                                                                    <div className="flex items-center gap-2 mt-1">
+                                                                        <span className="text-xs text-slate-400">مرات عدم التسليم السابقة: {s.missedHomework || 0}</span>
+                                                                        <span className={`text-[10px] px-2 py-0.5 rounded font-bold ${alert.color}`}>{alert.text}</span>
+                                                                    </div>
+                                                                </div>
+                                                                <div className="flex gap-1 bg-slate-100 p-1 rounded-xl">
+                                                                    <button onClick={() => setHomeworkBatch(prev => ({...prev, [s.id]: 'submitted'}))} className={`px-4 py-1.5 rounded-lg text-xs font-bold ${currentStatus === 'submitted' ? 'bg-emerald-600 text-white' : 'text-slate-600'}`}>حل الواجب ✓</button>
+                                                                    <button onClick={() => setHomeworkBatch(prev => ({...prev, [s.id]: 'missed'}))} className={`px-4 py-1.5 rounded-lg text-xs font-bold ${currentStatus === 'missed' ? 'bg-red-600 text-white' : 'text-slate-600'}`}>لم يحل ✕</button>
+                                                                </div>
+                                                            </div>
+                                                        );
+                                                    })}
+                                                </div>
+                                                <button onClick={submitHomework} className="w-full bg-purple-700 hover:bg-purple-800 text-white py-4 rounded-2xl font-bold shadow-lg transition-all">
+                                                    اعتماد كشف الواجبات سحابياً ✓
+                                                </button>
+                                            </>
+                                        )}
                                     </div>
                                 )}
                             </div>
                         ) : (
                             <div className="space-y-6">
-                                <div className="flex bg-white p-1.5 rounded-2xl border border-slate-100 shadow-sm">
-                                    {['inbox', 'students', 'settings'].map(t => (
+                                <div className="flex flex-wrap bg-white p-1.5 rounded-2xl border border-slate-100 shadow-sm gap-1">
+                                    {[
+                                        { id: 'inbox', label: `الوارد (${logs.length + homeworkLogs.length})` },
+                                        { id: 'students', label: 'الطلاب والحلقات' },
+                                        { id: 'homework_records', label: 'متابعة وتنبيهات الواجبات' },
+                                        { id: 'pledges', label: `التعهدات (${pledgeLogs.length})` },
+                                        { id: 'teachers', label: `تحضير المعلمين (${teachers.length})` },
+                                        { id: 'settings', label: 'قوالب الرسائل' }
+                                    ].map(t => (
                                         <button 
-                                            key={t} 
-                                            onClick={() => setView(t)} 
-                                            className={`flex-1 py-3 rounded-xl font-bold text-sm transition-all ${view === t ? 'bg-blue-600 text-white shadow-md' : 'text-slate-500'}`}
+                                            key={t.id} 
+                                            onClick={() => setView(t.id)} 
+                                            className={`flex-1 py-3 px-2 rounded-xl font-bold text-xs md:text-sm transition-all text-center ${view === t.id ? 'bg-blue-600 text-white shadow-md' : 'text-slate-500 hover:bg-slate-50'}`}
                                         >
-                                            {t === 'inbox' ? `الوارد (${logs.length})` : t === 'students' ? 'الطلاب والحلقات' : 'الإعدادات'}
+                                            {t.label}
                                         </button>
                                     ))}
                                 </div>
 
                                 {view === 'inbox' && (
                                     <div className="space-y-4">
-                                        {logs.map(log => {
-                                            const absentees = log.records?.filter(r => r.status === 'absent') || [];
-                                            const excused = log.records?.filter(r => r.status === 'excused') || [];
+                                        <div className="flex gap-2 border-b pb-2">
+                                            <button 
+                                                onClick={() => setInboxSubTab('attendance')}
+                                                className={`px-4 py-2 rounded-xl text-xs font-bold transition-all ${inboxSubTab === 'attendance' ? 'bg-blue-600 text-white' : 'bg-slate-100 text-slate-600'}`}
+                                            >
+                                                كشوفات الحضور ({logs.length})
+                                            </button>
+                                            <button 
+                                                onClick={() => setInboxSubTab('homework')}
+                                                className={`px-4 py-2 rounded-xl text-xs font-bold transition-all ${inboxSubTab === 'homework' ? 'bg-purple-600 text-white' : 'bg-slate-100 text-slate-600'}`}
+                                            >
+                                                كشوفات الواجبات ({homeworkLogs.length})
+                                            </button>
+                                        </div>
 
-                                            return (
-                                                <div key={log.id} className="bg-white rounded-3xl border border-slate-100 shadow-sm p-5 space-y-4">
-                                                    <div className="flex justify-between items-center border-b pb-3">
-                                                        <div className="flex items-center gap-2">
-                                                            <span className="bg-blue-100 text-blue-700 px-3 py-1 rounded-full text-xs font-bold">{log.group}</span>
-                                                            <span className="text-xs text-slate-400">{log.date}</span>
+                                        {inboxSubTab === 'attendance' && (
+                                            <div className="space-y-4">
+                                                {logs.map(log => {
+                                                    const absentees = log.records?.filter(r => r.status === 'absent') || [];
+                                                    const excused = log.records?.filter(r => r.status === 'excused') || [];
+
+                                                    return (
+                                                        <div key={log.id} className="bg-white rounded-3xl border border-slate-100 shadow-sm p-5 space-y-4">
+                                                            <div className="flex justify-between items-center border-b pb-3">
+                                                                <div className="flex items-center gap-2">
+                                                                    <span className="bg-blue-100 text-blue-700 px-3 py-1 rounded-full text-xs font-bold">{log.group}</span>
+                                                                    <span className="text-xs text-slate-400">{log.date}</span>
+                                                                </div>
+                                                                <button onClick={() => handleDeleteLog(log.id)} className="text-xs bg-red-50 text-red-600 hover:bg-red-100 font-bold px-3 py-1.5 rounded-xl transition-all">إزالة الكشف 🗑️</button>
+                                                            </div>
+
+                                                            <div className="space-y-2">
+                                                                {absentees.map(r => {
+                                                                    const currentStu = students.find(s => String(s.id) === String(r.studentId));
+                                                                    const msg = settings.absence_template
+                                                                        .replace(/{student_name}/g, r.name)
+                                                                        .replace(/{date}/g, log.date)
+                                                                        .replace(/{absence_count}/g, currentStu?.absences || 0);
+
+                                                                    return (
+                                                                        <div key={r.studentId} className="flex flex-wrap justify-between items-center bg-red-50 p-3 rounded-2xl border border-red-100 gap-2">
+                                                                            <div>
+                                                                                <div className="font-bold text-sm text-slate-800">{r.name} (غائب)</div>
+                                                                                <div className="text-xs text-slate-400" dir="ltr">{r.phone}</div>
+                                                                            </div>
+                                                                            <div className="flex flex-wrap gap-2">
+                                                                                <button onClick={() => handleConvertAbsence(log.id, r.studentId)} className="bg-amber-100 text-amber-900 px-3 py-1 rounded-xl text-xs font-bold">تحويل لمستئذن ⏱️</button>
+                                                                                <a href={`https://wa.me/${r.phone}?text=${encodeURIComponent(msg)}`} target="_blank" className="bg-emerald-500 hover:bg-emerald-600 text-white px-3 py-1 rounded-xl text-xs font-bold">واتساب 💬</a>
+                                                                                <button onClick={() => handleDismissStudentFromLog(log.id, r.studentId)} className="bg-slate-200 text-slate-700 hover:bg-slate-300 px-2.5 py-1 rounded-xl text-xs font-bold">✕</button>
+                                                                            </div>
+                                                                        </div>
+                                                                    );
+                                                                })}
+                                                                {excused.map(r => {
+                                                                    const msg = settings.excused_template.replace(/{student_name}/g, r.name).replace(/{date}/g, log.date);
+                                                                    return (
+                                                                        <div key={r.studentId} className="flex flex-wrap justify-between items-center bg-amber-50 p-3 rounded-2xl border border-amber-100 gap-2">
+                                                                            <div>
+                                                                                <div className="font-bold text-sm text-slate-800">{r.name} (مستئذن بعذر)</div>
+                                                                                <div className="text-xs text-slate-400" dir="ltr">{r.phone}</div>
+                                                                            </div>
+                                                                            <div className="flex flex-wrap gap-2">
+                                                                                <a href={`https://wa.me/${r.phone}?text=${encodeURIComponent(msg)}`} target="_blank" className="bg-emerald-500 hover:bg-emerald-600 text-white px-3 py-1 rounded-xl text-xs font-bold">واتساب 💬</a>
+                                                                                <button onClick={() => handleDismissStudentFromLog(log.id, r.studentId)} className="bg-slate-200 text-slate-700 hover:bg-slate-300 px-2.5 py-1 rounded-xl text-xs font-bold">✕</button>
+                                                                            </div>
+                                                                        </div>
+                                                                    );
+                                                                })}
+                                                                {absentees.length === 0 && excused.length === 0 && (
+                                                                    <div className="text-center text-emerald-600 text-sm font-bold py-2">✓ جميع الطلاب حاضرون</div>
+                                                                )}
+                                                            </div>
                                                         </div>
-                                                        <button 
-                                                            onClick={() => handleDeleteLog(log.id)}
-                                                            className="text-xs bg-red-50 text-red-600 hover:bg-red-100 font-bold px-3 py-1.5 rounded-xl flex items-center gap-1 transition-all"
-                                                        >
-                                                            <span>إزالة الكشف كاملاً</span> 🗑️
-                                                        </button>
-                                                    </div>
+                                                    );
+                                                })}
+                                            </div>
+                                        )}
 
-                                                    <div className="space-y-2">
-                                                        {absentees.map(r => {
-                                                            const currentStu = students.find(s => String(s.id) === String(r.studentId));
-                                                            const msg = settings.absence_template
-                                                                .replace(/{student_name}/g, r.name)
-                                                                .replace(/{date}/g, log.date)
-                                                                .replace(/{absence_count}/g, currentStu?.absences || 0);
+                                        {inboxSubTab === 'homework' && (
+                                            <div className="space-y-4">
+                                                {homeworkLogs.map(log => {
+                                                    const missedStudents = log.records?.filter(r => r.status === 'missed') || [];
 
-                                                            return (
-                                                                <div key={r.studentId} className="flex justify-between items-center bg-red-50 p-3 rounded-2xl border border-red-100">
-                                                                    <div>
-                                                                        <div className="font-bold text-sm text-slate-800">{r.name} (غائب)</div>
-                                                                        <div className="text-xs text-slate-400" dir="ltr">{r.phone}</div>
-                                                                    </div>
-                                                                    <div className="flex gap-2">
-                                                                        <button onClick={() => handleConvertAbsence(log.id, r.studentId)} className="bg-amber-100 text-amber-900 px-3 py-1 rounded-xl text-xs font-bold hover:bg-amber-200">تحويل لمستئذن ⏱️</button>
-                                                                        <a href={`https://wa.me/${r.phone}?text=${encodeURIComponent(msg)}`} target="_blank" className="bg-emerald-500 hover:bg-emerald-600 text-white px-3 py-1 rounded-xl text-xs font-bold">واتساب 💬</a>
-                                                                        <button onClick={() => handleDismissStudentFromLog(log.id, r.studentId)} className="bg-slate-200 text-slate-700 hover:bg-slate-300 px-2.5 py-1 rounded-xl text-xs font-bold" title="إزالة من الوارد">✕</button>
-                                                                    </div>
+                                                    return (
+                                                        <div key={log.id} className="bg-white rounded-3xl border border-slate-100 shadow-sm p-5 space-y-4">
+                                                            <div className="flex justify-between items-center border-b pb-3">
+                                                                <div className="flex items-center gap-2">
+                                                                    <span className="bg-purple-100 text-purple-700 px-3 py-1 rounded-full text-xs font-bold">واجبات: {log.group}</span>
+                                                                    <span className="text-xs text-slate-400">{log.date}</span>
                                                                 </div>
-                                                            );
-                                                        })}
+                                                                <button onClick={() => handleDeleteHwLog(log.id)} className="text-xs bg-red-50 text-red-600 hover:bg-red-100 font-bold px-3 py-1.5 rounded-xl transition-all">إزالة الكشف 🗑️</button>
+                                                            </div>
 
-                                                        {excused.map(r => {
-                                                            const msg = settings.excused_template.replace(/{student_name}/g, r.name).replace(/{date}/g, log.date);
-                                                            return (
-                                                                <div key={r.studentId} className="flex justify-between items-center bg-amber-50 p-3 rounded-2xl border border-amber-100">
-                                                                    <div>
-                                                                        <div className="font-bold text-sm text-slate-800">{r.name} (مستئذن بعذر)</div>
-                                                                        <div className="text-xs text-slate-400" dir="ltr">{r.phone}</div>
-                                                                    </div>
-                                                                    <div className="flex gap-2">
-                                                                        <a href={`https://wa.me/${r.phone}?text=${encodeURIComponent(msg)}`} target="_blank" className="bg-emerald-500 hover:bg-emerald-600 text-white px-3 py-1 rounded-xl text-xs font-bold">واتساب 💬</a>
-                                                                        <button onClick={() => handleDismissStudentFromLog(log.id, r.studentId)} className="bg-slate-200 text-slate-700 hover:bg-slate-300 px-2.5 py-1 rounded-xl text-xs font-bold" title="إزالة من الوارد">✕</button>
-                                                                    </div>
-                                                                </div>
-                                                            );
-                                                        })}
+                                                            <div className="space-y-2">
+                                                                {missedStudents.map(r => {
+                                                                    const currentStu = students.find(s => String(s.id) === String(r.studentId));
+                                                                    const count = currentStu?.missedHomework || 0;
+                                                                    const alert = getHomeworkAlert(count);
 
-                                                        {absentees.length === 0 && excused.length === 0 && (
-                                                            <div className="text-center text-emerald-600 text-sm font-bold py-2">✓ جميع الطلاب حاضرون</div>
-                                                        )}
+                                                                    const msg = settings.homework_template
+                                                                        .replace(/{student_name}/g, r.name)
+                                                                        .replace(/{date}/g, log.date)
+                                                                        .replace(/{missed_count}/g, count)
+                                                                        .replace(/{alert_status}/g, alert.text);
+
+                                                                    return (
+                                                                        <div key={r.studentId} className="flex flex-wrap justify-between items-center bg-rose-50 p-3 rounded-2xl border border-rose-100 gap-2">
+                                                                            <div>
+                                                                                <div className="flex items-center gap-2">
+                                                                                    <span className="font-bold text-sm text-slate-800">{r.name}</span>
+                                                                                    <span className={`text-[10px] px-2 py-0.5 rounded font-bold ${alert.color}`}>{alert.text}</span>
+                                                                                </div>
+                                                                                <div className="text-xs text-slate-400 mt-0.5">عدم التسليم التراكمي: {count} واجبات (الحد الأقصى 15)[cite: 1]</div>
+                                                                            </div>
+                                                                            <a href={`https://wa.me/${r.phone}?text=${encodeURIComponent(msg)}`} target="_blank" className="bg-emerald-500 hover:bg-emerald-600 text-white px-3 py-1 rounded-xl text-xs font-bold">
+                                                                                إشعار ولي الأمر عبر واتساب 💬
+                                                                            </a>
+                                                                        </div>
+                                                                    );
+                                                                })}
+                                                                {missedStudents.length === 0 && (
+                                                                    <div className="text-center text-emerald-600 text-sm font-bold py-2">✓ جميع الطلاب سلموا الواجب اليوم</div>
+                                                                )}
+                                                            </div>
+                                                        </div>
+                                                    );
+                                                })}
+                                                {homeworkLogs.length === 0 && (
+                                                    <div className="text-center py-20 text-slate-400 font-bold bg-white rounded-3xl border border-slate-100">
+                                                        لا توجد كشوفات واجبات واردة حتى الآن
                                                     </div>
-                                                </div>
-                                            );
-                                        })}
-                                        {logs.length === 0 && (
-                                            <div className="text-center py-20 text-slate-400 font-bold bg-white rounded-3xl border border-slate-100">
-                                                لا توجد تقارير واردة حالياً
+                                                )}
                                             </div>
                                         )}
                                     </div>
@@ -634,6 +1064,7 @@
 
                                 {view === 'students' && (
                                     <div className="space-y-4">
+                                        {/* شريط الإجراءات الأساسي */}
                                         <div className="flex flex-wrap justify-between items-center gap-3 bg-white p-5 rounded-3xl border border-slate-100 shadow-sm">
                                             <div className="flex flex-wrap gap-2">
                                                 <button onClick={() => setShowAddModal(true)} className="bg-blue-600 text-white px-4 py-2 rounded-xl text-xs font-bold">+ إضافة طالب</button>
@@ -642,7 +1073,7 @@
                                                     <input type="file" ref={fileInputRef} accept=".xlsx,.xls,.csv" onChange={handleExcelFileSelect} className="hidden" />
                                                 </label>
                                                 <button onClick={exportAbsencesToExcel} className="bg-emerald-600 hover:bg-emerald-700 text-white px-4 py-2 rounded-xl text-xs font-bold shadow-sm transition-all flex items-center gap-1">
-                                                    <span>📥 تصدير تقرير الغيابات Excel</span>
+                                                    <span>📥 تصدير تقرير شامل Excel (مع التواريخ)</span>
                                                 </button>
                                             </div>
                                             <input 
@@ -652,12 +1083,47 @@
                                             />
                                         </div>
 
+                                        {/* شريط الفلاتر المتقدمة لحالة الغياب والواجبات */}
+                                        <div className="bg-white p-4 rounded-3xl border border-slate-100 shadow-sm flex flex-wrap items-center gap-3 text-xs">
+                                            <span className="font-bold text-slate-500">🔍 تصفية مخصصة:</span>
+                                            
+                                            {/* فلتر الحلقة */}
+                                            <select value={filterGroup} onChange={e => setFilterGroup(e.target.value)} className="bg-slate-50 border rounded-xl px-3 py-1.5 font-bold">
+                                                <option value="ALL">جميع الحلقات ({students.length})</option>
+                                                {groups.map(g => <option key={g} value={g}>{g}</option>)}
+                                            </select>
+
+                                            {/* فلتر حالة الغياب */}
+                                            <select value={filterAbsence} onChange={e => setFilterAbsence(e.target.value)} className="bg-slate-50 border rounded-xl px-3 py-1.5 font-bold">
+                                                <option value="ALL">جميع حالات الغياب</option>
+                                                <option value="NORMAL">غياب طبيعي (أقل من 3)</option>
+                                                <option value="WARNING">تحذير أصفر (3 إلى 5 غيابات)</option>
+                                                <option value="DANGER">خطر أحمر (6 غيابات فأكثر)</option>
+                                            </select>
+
+                                            {/* فلتر حالة الواجبات */}
+                                            <select value={filterHomework} onChange={e => setFilterHomework(e.target.value)} className="bg-slate-50 border rounded-xl px-3 py-1.5 font-bold">
+                                                <option value="ALL">جميع حالات الواجبات</option>
+                                                <option value="none">منتظم (أقل من 5)</option>
+                                                <option value="first">التنبيه الأول (5 واجبات)[cite: 1]</option>
+                                                <option value="second">التنبيه الثاني (10 واجبات)[cite: 1]</option>
+                                                <option value="final">التنبيه النهائي (14 واجباً)[cite: 1]</option>
+                                                <option value="exceeded">تجاوز الحد (15 واجباً فأكثر)[cite: 1]</option>
+                                            </select>
+
+                                            {(filterGroup !== 'ALL' || filterAbsence !== 'ALL' || filterHomework !== 'ALL') && (
+                                                <button 
+                                                    onClick={() => { setFilterGroup('ALL'); setFilterAbsence('ALL'); setFilterHomework('ALL'); }}
+                                                    className="text-red-500 font-bold hover:underline"
+                                                >
+                                                    إعادة ضبط الفلاتر ✕
+                                                </button>
+                                            )}
+                                        </div>
+
                                         <div className="bg-white rounded-3xl border border-slate-100 overflow-hidden shadow-sm">
                                             <div className="p-4 border-b flex justify-between items-center bg-slate-50/50">
-                                                <select value={filterGroup} onChange={e => setFilterGroup(e.target.value)} className="bg-white border rounded-xl px-3 py-1 text-xs font-bold">
-                                                    <option value="ALL">جميع الحلقات ({students.length})</option>
-                                                    {groups.map(g => <option key={g} value={g}>{g}</option>)}
-                                                </select>
+                                                <span className="text-xs font-bold text-slate-500">الطلاب المطابقون: {filteredStudents.length}</span>
                                                 {selectedSids.length > 0 && (
                                                     <button onClick={deleteSelectedStudents} className="bg-red-600 text-white px-3 py-1 rounded-xl text-xs font-bold">
                                                         حذف ({selectedSids.length}) محددين
@@ -665,54 +1131,287 @@
                                                 )}
                                             </div>
 
-                                            <table className="w-full text-right text-sm">
-                                                <thead className="bg-slate-50 text-slate-500 text-xs">
-                                                    <tr>
-                                                        <th className="p-4 w-10">
-                                                            <input 
-                                                                type="checkbox" 
-                                                                checked={filteredStudents.length > 0 && selectedSids.length === filteredStudents.length}
-                                                                onChange={e => setSelectedSids(e.target.checked ? filteredStudents.map(s => s.id) : [])}
-                                                            />
-                                                        </th>
-                                                        <th className="p-4 font-bold">الطالب</th>
-                                                        <th className="p-4 font-bold">الحلقة</th>
-                                                        <th className="p-4 font-bold">الغيابات</th>
-                                                        <th className="p-4 font-bold">الحالة</th>
-                                                        <th className="p-4 font-bold text-center">الخيارات</th>
-                                                    </tr>
-                                                </thead>
-                                                <tbody className="divide-y divide-slate-100">
-                                                    {filteredStudents.map(s => (
-                                                        <tr key={s.id} className="hover:bg-slate-50">
-                                                            <td className="p-4">
+                                            <div className="overflow-x-auto">
+                                                <table className="w-full text-right text-sm">
+                                                    <thead className="bg-slate-50 text-slate-500 text-xs">
+                                                        <tr>
+                                                            <th className="p-4 w-10">
                                                                 <input 
                                                                     type="checkbox" 
-                                                                    checked={selectedSids.includes(s.id)}
-                                                                    onChange={() => setSelectedSids(prev => prev.includes(s.id) ? prev.filter(i => i !== s.id) : [...prev, s.id])}
+                                                                    checked={filteredStudents.length > 0 && selectedSids.length === filteredStudents.length}
+                                                                    onChange={e => setSelectedSids(e.target.checked ? filteredStudents.map(s => s.id) : [])}
                                                                 />
-                                                            </td>
-                                                            <td className="p-4">
-                                                                <div className="font-bold text-slate-800">{s.name}</div>
-                                                                <div className="text-xs text-slate-400" dir="ltr">{s.phone}</div>
-                                                            </td>
-                                                            <td className="p-4 text-slate-600 font-medium">{s.group}</td>
-                                                            <td className="p-4">{getStatusBadge(s.absences)}</td>
-                                                            <td className="p-4">
-                                                                <span className={`text-[10px] px-2.5 py-1 rounded-md font-bold ${s.active ? 'bg-emerald-50 text-emerald-600' : 'bg-slate-200 text-slate-600'}`}>
-                                                                    {s.active ? 'مستمر' : 'منقطع'}
-                                                                </span>
-                                                            </td>
-                                                            <td className="p-4 text-center">
-                                                                <div className="flex justify-center gap-2">
-                                                                    <button onClick={() => setEditingStudent({...s})} className="bg-blue-50 text-blue-600 px-3 py-1 rounded-xl font-bold text-xs">تعديل ✏️</button>
-                                                                    <button onClick={() => deleteSingleStudent(s.id)} className="bg-red-50 text-red-600 px-3 py-1 rounded-xl font-bold text-xs">حذف 🗑️</button>
-                                                                </div>
-                                                            </td>
+                                                            </th>
+                                                            <th className="p-4 font-bold">الطالب</th>
+                                                            <th className="p-4 font-bold">الحلقة</th>
+                                                            <th className="p-4 font-bold">الغيابات</th>
+                                                            <th className="p-4 font-bold">تنبيه الواجبات</th>
+                                                            <th className="p-4 font-bold">التعهدات</th>
+                                                            <th className="p-4 font-bold">الحالة</th>
+                                                            <th className="p-4 font-bold text-center">الخيارات</th>
                                                         </tr>
-                                                    ))}
-                                                </tbody>
-                                            </table>
+                                                    </thead>
+                                                    <tbody className="divide-y divide-slate-100">
+                                                        {filteredStudents.map(s => {
+                                                            const hwAlert = getHomeworkAlert(s.missedHomework || 0);
+
+                                                            return (
+                                                                <tr key={s.id} className="hover:bg-slate-50">
+                                                                    <td className="p-4">
+                                                                        <input 
+                                                                            type="checkbox" 
+                                                                            checked={selectedSids.includes(s.id)}
+                                                                            onChange={() => setSelectedSids(prev => prev.includes(s.id) ? prev.filter(i => i !== s.id) : [...prev, s.id])}
+                                                                        />
+                                                                    </td>
+                                                                    <td className="p-4">
+                                                                        <div className="font-bold text-slate-800">{s.name}</div>
+                                                                        <div className="text-xs text-slate-400" dir="ltr">{s.phone}</div>
+                                                                    </td>
+                                                                    <td className="p-4 text-slate-600 font-medium">{s.group}</td>
+                                                                    <td className="p-4">{getStatusBadge(s.absences)}</td>
+                                                                    <td className="p-4">
+                                                                        <div className="flex items-center gap-1.5">
+                                                                            <span className={`text-[10px] px-2 py-0.5 rounded font-bold ${hwAlert.color}`}>{hwAlert.text}</span>
+                                                                            <span className="text-xs text-slate-400 font-bold">({s.missedHomework || 0}/15)</span>
+                                                                        </div>
+                                                                    </td>
+                                                                    <td className="p-4">
+                                                                        <div className="flex items-center gap-2">
+                                                                            {getPledgeBadge(s.pledges)}
+                                                                            <button onClick={() => setShowPledgeModal(s)} className="text-[11px] bg-purple-50 text-purple-700 hover:bg-purple-100 px-2 py-0.5 rounded font-bold">
+                                                                                + تعهد
+                                                                            </button>
+                                                                        </div>
+                                                                    </td>
+                                                                    <td className="p-4">
+                                                                        <span className={`text-[10px] px-2.5 py-1 rounded-md font-bold ${s.active ? 'bg-emerald-50 text-emerald-600' : 'bg-slate-200 text-slate-600'}`}>
+                                                                            {s.active ? 'مستمر' : 'منقطع'}
+                                                                        </span>
+                                                                    </td>
+                                                                    <td className="p-4 text-center">
+                                                                        <div className="flex justify-center gap-1.5">
+                                                                            <button onClick={() => setEditingStudent({...s})} className="bg-blue-50 text-blue-600 px-2.5 py-1 rounded-xl font-bold text-xs">تعديل ✏️</button>
+                                                                            <button onClick={() => deleteSingleStudent(s.id)} className="bg-red-50 text-red-600 px-2.5 py-1 rounded-xl font-bold text-xs">حذف 🗑️</button>
+                                                                        </div>
+                                                                    </td>
+                                                                </tr>
+                                                            );
+                                                        })}
+                                                    </tbody>
+                                                </table>
+                                                {filteredStudents.length === 0 && (
+                                                    <div className="text-center py-12 text-slate-400 font-bold text-xs">
+                                                        لا يوجد طلاب يطابقون خيارات البحث والفلاتر المحددة
+                                                    </div>
+                                                )}
+                                            </div>
+                                        </div>
+                                    </div>
+                                )}
+
+                                {view === 'homework_records' && (
+                                    <div className="space-y-6">
+                                        <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+                                            <div className="bg-white p-5 rounded-3xl border border-slate-100 shadow-sm">
+                                                <div className="text-xs text-yellow-700 font-bold">التنبيه الأول (5 واجبات)[cite: 1]</div>
+                                                <div className="text-2xl font-extrabold text-yellow-700 mt-2">
+                                                    {students.filter(s => (s.missedHomework || 0) >= 5 && (s.missedHomework || 0) < 10).length} طالب
+                                                </div>
+                                            </div>
+                                            <div className="bg-white p-5 rounded-3xl border border-slate-100 shadow-sm">
+                                                <div className="text-xs text-amber-700 font-bold">التنبيه الثاني (10 واجبات)[cite: 1]</div>
+                                                <div className="text-2xl font-extrabold text-amber-700 mt-2">
+                                                    {students.filter(s => (s.missedHomework || 0) >= 10 && (s.missedHomework || 0) < 14).length} طالب
+                                                </div>
+                                            </div>
+                                            <div className="bg-white p-5 rounded-3xl border border-slate-100 shadow-sm">
+                                                <div className="text-xs text-red-700 font-bold">التنبيه النهائي (14 واجباً)[cite: 1]</div>
+                                                <div className="text-2xl font-extrabold text-red-700 mt-2">
+                                                    {students.filter(s => (s.missedHomework || 0) === 14).length} طالب
+                                                </div>
+                                            </div>
+                                            <div className="bg-white p-5 rounded-3xl border border-slate-100 shadow-sm">
+                                                <div className="text-xs text-rose-900 font-bold">تجاوز الحد الأقصى (15+)[cite: 1]</div>
+                                                <div className="text-2xl font-extrabold text-rose-900 mt-2">
+                                                    {students.filter(s => (s.missedHomework || 0) >= 15).length} طالب
+                                                </div>
+                                            </div>
+                                        </div>
+
+                                        <div className="bg-white rounded-3xl border border-slate-100 shadow-sm p-5 space-y-4">
+                                            <h3 className="font-bold text-slate-800 text-lg">سجل تفاصيل الطلاب وتنبيهات الواجبات</h3>
+                                            <div className="overflow-x-auto">
+                                                <table className="w-full text-right text-sm">
+                                                    <thead className="bg-slate-50 text-slate-500 text-xs">
+                                                        <tr>
+                                                            <th className="p-3 font-bold">اسم الطالب</th>
+                                                            <th className="p-3 font-bold">الحلقة</th>
+                                                            <th className="p-3 font-bold">واجبات لم تسلم</th>
+                                                            <th className="p-3 font-bold">مستوى التنبيه</th>
+                                                            <th className="p-3 font-bold text-center">إجراءات سريعة</th>
+                                                        </tr>
+                                                    </thead>
+                                                    <tbody className="divide-y divide-slate-100">
+                                                        {students.filter(s => (s.missedHomework || 0) > 0).map(s => {
+                                                            const alert = getHomeworkAlert(s.missedHomework);
+                                                            const msg = settings.homework_template
+                                                                .replace(/{student_name}/g, s.name)
+                                                                .replace(/{date}/g, getTodayDateStr())
+                                                                .replace(/{missed_count}/g, s.missedHomework)
+                                                                .replace(/{alert_status}/g, alert.text);
+
+                                                            return (
+                                                                <tr key={s.id} className="hover:bg-slate-50">
+                                                                    <td className="p-3 font-bold text-slate-800">{s.name}</td>
+                                                                    <td className="p-3 text-slate-600">{s.group}</td>
+                                                                    <td className="p-3 font-extrabold text-rose-600">{s.missedHomework} / 15</td>
+                                                                    <td className="p-3">
+                                                                        <span className={`text-xs px-2.5 py-1 rounded-md font-bold ${alert.color}`}>{alert.text}</span>
+                                                                    </td>
+                                                                    <td className="p-3 text-center">
+                                                                        <div className="flex justify-center gap-2">
+                                                                            <a href={`https://wa.me/${s.phone}?text=${encodeURIComponent(msg)}`} target="_blank" className="text-xs bg-emerald-500 hover:bg-emerald-600 text-white font-bold px-3 py-1 rounded-xl">واتساب 💬</a>
+                                                                            <button onClick={() => handleResetHomework(s.id, s.name)} className="text-xs bg-slate-100 hover:bg-slate-200 text-slate-700 px-3 py-1 rounded-xl font-bold">تصفير العداد</button>
+                                                                        </div>
+                                                                    </td>
+                                                                </tr>
+                                                            );
+                                                        })}
+                                                    </tbody>
+                                                </table>
+                                                {students.filter(s => (s.missedHomework || 0) > 0).length === 0 && (
+                                                    <div className="text-center py-8 text-slate-400 text-xs">لا يوجد طلاب متأخرون في تسليم الواجبات حالياً</div>
+                                                )}
+                                            </div>
+                                        </div>
+                                    </div>
+                                )}
+
+                                {view === 'pledges' && (
+                                    <div className="space-y-6">
+                                        <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                                            <div className="bg-white p-5 rounded-3xl border border-slate-100 shadow-sm">
+                                                <div className="text-xs text-slate-400 font-bold">إجمالي التعهدات المرصودة</div>
+                                                <div className="text-3xl font-extrabold text-purple-700 mt-2">
+                                                    {students.reduce((acc, curr) => acc + (Number(curr.pledges) || 0), 0)}
+                                                </div>
+                                            </div>
+                                            <div className="bg-white p-5 rounded-3xl border border-slate-100 shadow-sm">
+                                                <div className="text-xs text-slate-400 font-bold">الطلاب الحاصلين على تعهدات</div>
+                                                <div className="text-3xl font-extrabold text-amber-600 mt-2">
+                                                    {students.filter(s => (Number(s.pledges) || 0) > 0).length}
+                                                </div>
+                                            </div>
+                                            <div className="bg-white p-5 rounded-3xl border border-slate-100 shadow-sm">
+                                                <div className="text-xs text-slate-400 font-bold">تعهدات حرجة (3 فأكثر)</div>
+                                                <div className="text-3xl font-extrabold text-red-600 mt-2">
+                                                    {students.filter(s => (Number(s.pledges) || 0) >= 3).length}
+                                                </div>
+                                            </div>
+                                        </div>
+
+                                        <div className="bg-white rounded-3xl border border-slate-100 shadow-sm p-5 space-y-4">
+                                            <h3 className="font-bold text-slate-800 text-lg">سجل تفاصيل التعهدات التأديبية الأخيرة</h3>
+                                            <div className="overflow-x-auto">
+                                                <table className="w-full text-right text-sm">
+                                                    <thead className="bg-slate-50 text-slate-500 text-xs">
+                                                        <tr>
+                                                            <th className="p-3 font-bold">التاريخ</th>
+                                                            <th className="p-3 font-bold">اسم الطالب</th>
+                                                            <th className="p-3 font-bold">الحلقة</th>
+                                                            <th className="p-3 font-bold">سبب التعهد</th>
+                                                            <th className="p-3 font-bold">إجمالي تعهدات الطالب</th>
+                                                            <th className="p-3 font-bold text-center">إجراءات</th>
+                                                        </tr>
+                                                    </thead>
+                                                    <tbody className="divide-y divide-slate-100">
+                                                        {pledgeLogs.map(log => {
+                                                            const currentStudent = students.find(s => String(s.id) === String(log.studentId));
+                                                            return (
+                                                                <tr key={log.id} className="hover:bg-slate-50">
+                                                                    <td className="p-3 text-xs text-slate-500">{log.date}</td>
+                                                                    <td className="p-3 font-bold text-slate-800">{log.studentName}</td>
+                                                                    <td className="p-3 text-slate-600">{log.group}</td>
+                                                                    <td className="p-3 text-red-600 font-medium">{log.reason}</td>
+                                                                    <td className="p-3 font-bold">{currentStudent?.pledges || 0}</td>
+                                                                    <td className="p-3 text-center">
+                                                                        <button onClick={() => handleResetPledges(log.studentId, log.studentName)} className="text-xs bg-slate-100 hover:bg-slate-200 text-slate-700 px-3 py-1 rounded-xl font-bold">
+                                                                            تصفير التعهدات
+                                                                        </button>
+                                                                    </td>
+                                                                </tr>
+                                                            );
+                                                        })}
+                                                    </tbody>
+                                                </table>
+                                                {pledgeLogs.length === 0 && (
+                                                    <div className="text-center py-8 text-slate-400 text-xs">لا يوجد تعهدات مسجلة حتى الآن</div>
+                                                )}
+                                            </div>
+                                        </div>
+                                    </div>
+                                )}
+
+                                {view === 'teachers' && (
+                                    <div className="space-y-6">
+                                        <div className="bg-white p-5 rounded-3xl border border-slate-100 shadow-sm flex flex-wrap justify-between items-center gap-4">
+                                            <div>
+                                                <h3 className="font-bold text-slate-800 text-lg">بوابة رصد واحتساب حضور المعلمين</h3>
+                                                <p className="text-xs text-slate-400 mt-1">تتيح رصد الحضور الداخلي دون إرسال أي إشعارات أو رسائل عبر واتساب</p>
+                                            </div>
+                                            <div className="flex gap-2">
+                                                <button onClick={() => setShowAddTeacherModal(true)} className="bg-blue-600 text-white px-4 py-2 rounded-xl text-xs font-bold">+ إضافة معلم</button>
+                                                <button onClick={submitTeacherAttendance} className="bg-emerald-600 hover:bg-emerald-700 text-white px-5 py-2 rounded-xl text-xs font-bold shadow-md transition-all">
+                                                    اعتماد حضور اليوم سحابياً ✓
+                                                </button>
+                                            </div>
+                                        </div>
+
+                                        <div className="bg-white rounded-3xl border border-slate-100 shadow-sm overflow-hidden">
+                                            <div className="p-4 border-b bg-slate-50 flex justify-between items-center">
+                                                <span className="font-bold text-xs text-slate-700">تحضير تاريخ اليوم: {getTodayDateStr()}</span>
+                                                <span className="text-xs text-slate-500">إجمالي المعلمين: {teachers.length}</span>
+                                            </div>
+                                            <div className="overflow-x-auto">
+                                                <table className="w-full text-right text-sm">
+                                                    <thead className="bg-slate-50 text-slate-500 text-xs">
+                                                        <tr>
+                                                            <th className="p-4 font-bold">اسم المعلم</th>
+                                                            <th className="p-4 font-bold">التخصص / الحلقة</th>
+                                                            <th className="p-4 font-bold">حالة اليوم</th>
+                                                            <th className="p-4 font-bold text-emerald-600">أيام الحضور</th>
+                                                            <th className="p-4 font-bold text-red-600">أيام الغياب</th>
+                                                            <th className="p-4 font-bold text-amber-600">أيام الاستئذان</th>
+                                                            <th className="p-4 font-bold text-center">حذف</th>
+                                                        </tr>
+                                                    </thead>
+                                                    <tbody className="divide-y divide-slate-100">
+                                                        {teachers.map(t => {
+                                                            const currentStatus = teacherAttendanceBatch[t.id] || 'present';
+                                                            return (
+                                                                <tr key={t.id} className="hover:bg-slate-50">
+                                                                    <td className="p-4 font-bold text-slate-800">{t.name}</td>
+                                                                    <td className="p-4 text-slate-500">{t.subject}</td>
+                                                                    <td className="p-4">
+                                                                        <div className="inline-flex gap-1 bg-slate-100 p-1 rounded-xl">
+                                                                            <button onClick={() => setTeacherAttendanceBatch(prev => ({...prev, [t.id]: 'present'}))} className={`px-3 py-1 rounded-lg text-xs font-bold ${currentStatus === 'present' ? 'bg-emerald-600 text-white' : 'text-slate-600'}`}>حاضر</button>
+                                                                            <button onClick={() => setTeacherAttendanceBatch(prev => ({...prev, [t.id]: 'excused'}))} className={`px-3 py-1 rounded-lg text-xs font-bold ${currentStatus === 'excused' ? 'bg-amber-500 text-white' : 'text-slate-600'}`}>مستئذن</button>
+                                                                            <button onClick={() => setTeacherAttendanceBatch(prev => ({...prev, [t.id]: 'absent'}))} className={`px-3 py-1 rounded-lg text-xs font-bold ${currentStatus === 'absent' ? 'bg-red-600 text-white' : 'text-slate-600'}`}>غائب</button>
+                                                                        </div>
+                                                                    </td>
+                                                                    <td className="p-4 font-extrabold text-emerald-600">{t.presentCount || 0} يوم</td>
+                                                                    <td className="p-4 font-extrabold text-red-600">{t.absentCount || 0} يوم</td>
+                                                                    <td className="p-4 font-extrabold text-amber-600">{t.excusedCount || 0} يوم</td>
+                                                                    <td className="p-4 text-center">
+                                                                        <button onClick={() => handleDeleteTeacher(t.id, t.name)} className="text-red-500 hover:text-red-700 font-bold text-xs">✕</button>
+                                                                    </td>
+                                                                </tr>
+                                                            );
+                                                        })}
+                                                    </tbody>
+                                                </table>
+                                            </div>
                                         </div>
                                     </div>
                                 )}
@@ -720,12 +1419,16 @@
                                 {view === 'settings' && (
                                     <div className="bg-white p-6 rounded-3xl border border-slate-100 space-y-6 shadow-sm">
                                         <div>
-                                            <label className="block text-sm font-bold mb-2">قالب رسالة الغياب (بدون عذر)</label>
-                                            <textarea className="w-full p-4 bg-slate-50 border rounded-2xl h-28 text-sm outline-none" value={settings.absence_template} onChange={e => setSettings({...settings, absence_template: e.target.value})} />
+                                            <label className="block text-sm font-bold mb-2">قالب رسالة الغياب للطلاب (بدون عذر)</label>
+                                            <textarea className="w-full p-4 bg-slate-50 border rounded-2xl h-24 text-sm outline-none" value={settings.absence_template} onChange={e => setSettings({...settings, absence_template: e.target.value})} />
                                         </div>
                                         <div>
-                                            <label className="block text-sm font-bold mb-2">قالب رسالة الاستئذان (بعذر)</label>
-                                            <textarea className="w-full p-4 bg-slate-50 border rounded-2xl h-28 text-sm outline-none" value={settings.excused_template} onChange={e => setSettings({...settings, excused_template: e.target.value})} />
+                                            <label className="block text-sm font-bold mb-2">قالب رسالة الاستئذان للطلاب (بعذر)</label>
+                                            <textarea className="w-full p-4 bg-slate-50 border rounded-2xl h-24 text-sm outline-none" value={settings.excused_template} onChange={e => setSettings({...settings, excused_template: e.target.value})} />
+                                        </div>
+                                        <div>
+                                            <label className="block text-sm font-bold mb-2">قالب رسالة عدم تسليم الواجب (تنبيهات الواجبات)</label>
+                                            <textarea className="w-full p-4 bg-slate-50 border rounded-2xl h-28 text-sm outline-none" value={settings.homework_template} onChange={e => setSettings({...settings, homework_template: e.target.value})} />
                                         </div>
                                         <button onClick={() => { db.collection('settings').doc('app_config').set(settings); showToast("تم حفظ الإعدادات سحابياً"); }} className="bg-blue-600 text-white px-8 py-3 rounded-2xl font-bold text-sm shadow-md">
                                             حفظ الإعدادات
@@ -735,6 +1438,47 @@
                             </div>
                         )}
                     </main>
+
+                    {showPledgeModal && (
+                        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 modal-overlay">
+                            <form onSubmit={handleAddPledge} className="bg-white w-full max-w-md rounded-3xl p-6 space-y-4">
+                                <h3 className="text-lg font-bold border-b pb-2 text-slate-800">تسجيل تعهد تأديبي</h3>
+                                <div>
+                                    <p className="text-sm text-slate-600 font-bold">الطالب: <span className="text-purple-700">{showPledgeModal.name}</span></p>
+                                    <p className="text-xs text-slate-400">الحلقة: {showPledgeModal.group} | التعهدات السابقة: {showPledgeModal.pledges || 0}</p>
+                                </div>
+                                <div>
+                                    <label className="block text-xs font-bold text-slate-700 mb-1">سبب التعهد:</label>
+                                    <textarea 
+                                        required 
+                                        placeholder="مثال: التأخر المتكرر، إثارة الفوضى، إحضار الهاتف..." 
+                                        className="w-full p-3 bg-slate-50 border rounded-xl text-sm h-24 outline-none"
+                                        value={pledgeReason}
+                                        onChange={e => setPledgeReason(e.target.value)}
+                                    />
+                                </div>
+                                <div className="flex gap-2 pt-2">
+                                    <button type="submit" className="flex-1 bg-purple-700 hover:bg-purple-800 text-white font-bold py-3 rounded-xl transition-all">تأكيد التعهد سحابياً</button>
+                                    <button type="button" onClick={() => setShowPledgeModal(null)} className="px-5 bg-slate-100 rounded-xl">إلغاء</button>
+                                </div>
+                            </form>
+                        </div>
+                    )}
+
+                    {showAddTeacherModal && (
+                        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 modal-overlay">
+                            <form onSubmit={handleAddTeacher} className="bg-white w-full max-w-md rounded-3xl p-6 space-y-4">
+                                <h3 className="text-lg font-bold border-b pb-2">إضافة معلم جديد</h3>
+                                <input required placeholder="اسم المعلم" className="w-full p-3 bg-slate-50 border rounded-xl" value={newTeacher.name} onChange={e => setNewTeacher({...newTeacher, name: e.target.value})} />
+                                <input placeholder="رقم الجوال (اختياري)" className="w-full p-3 bg-slate-50 border rounded-xl" dir="ltr" value={newTeacher.phone} onChange={e => setNewTeacher({...newTeacher, phone: e.target.value})} />
+                                <input placeholder="التخصص / اسم الحلقة المسؤول عنها" className="w-full p-3 bg-slate-50 border rounded-xl" value={newTeacher.subject} onChange={e => setNewTeacher({...newTeacher, subject: e.target.value})} />
+                                <div className="flex gap-2 pt-2">
+                                    <button type="submit" className="flex-1 bg-blue-600 text-white font-bold py-3 rounded-xl">حفظ المعلم</button>
+                                    <button type="button" onClick={() => setShowAddTeacherModal(false)} className="px-5 bg-slate-100 rounded-xl">إلغاء</button>
+                                </div>
+                            </form>
+                        </div>
+                    )}
 
                     {showAddModal && (
                         <div className="fixed inset-0 z-50 flex items-center justify-center p-4 modal-overlay">
@@ -758,16 +1502,30 @@
                     {editingStudent && (
                         <div className="fixed inset-0 z-50 flex items-center justify-center p-4 modal-overlay">
                             <form onSubmit={handleSaveEdit} className="bg-white w-full max-w-md rounded-3xl p-6 space-y-4">
-                                <h3 className="text-lg font-bold border-b pb-2">تعديل بيانات الطالب</h3>
+                                <h3 className="text-lg font-bold border-b pb-2">تعديل بيانات الطالب الشاملة</h3>
                                 <input required className="w-full p-3 bg-slate-50 border rounded-xl" value={editingStudent.name} onChange={e => setEditingStudent({...editingStudent, name: e.target.value})} />
                                 <input required className="w-full p-3 bg-slate-50 border rounded-xl" dir="ltr" value={editingStudent.phone} onChange={e => setEditingStudent({...editingStudent, phone: e.target.value})} />
                                 <input required className="w-full p-3 bg-slate-50 border rounded-xl" value={editingStudent.group} onChange={e => setEditingStudent({...editingStudent, group: e.target.value})} />
-                                <div className="grid grid-cols-2 gap-2">
-                                    <input type="number" min="0" className="w-full p-3 bg-slate-50 border rounded-xl" value={editingStudent.absences} onChange={e => setEditingStudent({...editingStudent, absences: e.target.value})} />
-                                    <select className="w-full p-3 bg-slate-50 border rounded-xl font-bold" value={editingStudent.active ? "true" : "false"} onChange={e => setEditingStudent({...editingStudent, active: e.target.value === 'true'})}>
-                                        <option value="true">مستمر</option>
-                                        <option value="false">منقطع</option>
-                                    </select>
+                                <div className="grid grid-cols-4 gap-2">
+                                    <div>
+                                        <label className="text-[10px] text-slate-400 font-bold block mb-1">الغيابات</label>
+                                        <input type="number" min="0" className="w-full p-2 bg-slate-50 border rounded-xl text-center" value={editingStudent.absences} onChange={e => setEditingStudent({...editingStudent, absences: e.target.value})} />
+                                    </div>
+                                    <div>
+                                        <label className="text-[10px] text-slate-400 font-bold block mb-1">الواجبات المقصرة</label>
+                                        <input type="number" min="0" max="15" className="w-full p-2 bg-slate-50 border rounded-xl text-center" value={editingStudent.missedHomework || 0} onChange={e => setEditingStudent({...editingStudent, missedHomework: e.target.value})} />
+                                    </div>
+                                    <div>
+                                        <label className="text-[10px] text-slate-400 font-bold block mb-1">التعهدات</label>
+                                        <input type="number" min="0" className="w-full p-2 bg-slate-50 border rounded-xl text-center" value={editingStudent.pledges || 0} onChange={e => setEditingStudent({...editingStudent, pledges: e.target.value})} />
+                                    </div>
+                                    <div>
+                                        <label className="text-[10px] text-slate-400 font-bold block mb-1">الحالة</label>
+                                        <select className="w-full p-2 bg-slate-50 border rounded-xl font-bold text-xs" value={editingStudent.active ? "true" : "false"} onChange={e => setEditingStudent({...editingStudent, active: e.target.value === 'true'})}>
+                                            <option value="true">مستمر</option>
+                                            <option value="false">منقطع</option>
+                                        </select>
+                                    </div>
                                 </div>
                                 <div className="flex gap-2 pt-2">
                                     <button type="submit" className="flex-1 bg-blue-600 text-white font-bold py-3 rounded-xl">تحديث السحابة</button>
