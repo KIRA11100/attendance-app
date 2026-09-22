@@ -112,6 +112,7 @@
             const [monitorMode, setMonitorMode] = useState('attendance');
             const [attendanceBatch, setAttendanceBatch] = useState({});
             const [homeworkBatch, setHomeworkBatch] = useState({});
+            const [isMonitoringTeachers, setIsMonitoringTeachers] = useState(false); // حالة فتح شاشة تحضير المعلمين في الرصد
 
             // إدارة الطلاب
             const [showAddModal, setShowAddModal] = useState(false);
@@ -204,6 +205,7 @@
                 setRole(null);
                 setPin('');
                 setActiveMonitorGroup(null);
+                setIsMonitoringTeachers(false);
                 setAttendanceBatch({});
                 setHomeworkBatch({});
                 setEditingStudent(null);
@@ -243,6 +245,7 @@
                 setAttendanceBatch(initialAttMap);
                 setHomeworkBatch(initialHwMap);
                 setActiveMonitorGroup(groupName);
+                setIsMonitoringTeachers(false);
             };
 
             const submitAttendance = async () => {
@@ -344,6 +347,53 @@
                     setActiveMonitorGroup(null);
                 } catch (err) {
                     showToast("حدث خطأ أثناء حفظ الواجبات", "error");
+                }
+            };
+
+            const submitTeacherAttendance = async () => {
+                const today = getTodayDateStr();
+                const logId = `teachers_${today}`;
+                const existingLog = teacherLogs.find(l => l.id === logId);
+
+                const snapshotRecords = teachers.map(t => ({
+                    teacherId: String(t.id),
+                    name: t.name,
+                    subject: t.subject,
+                    status: teacherAttendanceBatch[t.id] || 'present'
+                }));
+
+                try {
+                    const batch = db.batch();
+
+                    if (existingLog && existingLog.records) {
+                        existingLog.records.forEach(r => {
+                            const ref = db.collection('teachers').doc(r.teacherId);
+                            if (r.status === 'present') batch.update(ref, { presentCount: firebase.firestore.FieldValue.increment(-1) });
+                            else if (r.status === 'absent') batch.update(ref, { absentCount: firebase.firestore.FieldValue.increment(-1) });
+                            else if (r.status === 'excused') batch.update(ref, { excusedCount: firebase.firestore.FieldValue.increment(-1) });
+                        });
+                    }
+
+                    snapshotRecords.forEach(r => {
+                        const ref = db.collection('teachers').doc(r.teacherId);
+                        if (r.status === 'present') batch.update(ref, { presentCount: firebase.firestore.FieldValue.increment(1) });
+                        else if (r.status === 'absent') batch.update(ref, { absentCount: firebase.firestore.FieldValue.increment(1) });
+                        else if (r.status === 'excused') batch.update(ref, { excusedCount: firebase.firestore.FieldValue.increment(1) });
+                    });
+
+                    const logRef = db.collection('teacher_attendance_logs').doc(logId);
+                    batch.set(logRef, {
+                        id: logId,
+                        date: today,
+                        timestamp: firebase.firestore.FieldValue.serverTimestamp(),
+                        records: snapshotRecords
+                    });
+
+                    await batch.commit();
+                    showToast("تم اعتماد تحضير المعلمين لليوم بنجاح ✓");
+                    setIsMonitoringTeachers(false);
+                } catch (err) {
+                    showToast("تعذر حفظ تحضير المعلمين", "error");
                 }
             };
 
@@ -491,52 +541,6 @@
                 }
             };
 
-            const submitTeacherAttendance = async () => {
-                const today = getTodayDateStr();
-                const logId = `teachers_${today}`;
-                const existingLog = teacherLogs.find(l => l.id === logId);
-
-                const snapshotRecords = teachers.map(t => ({
-                    teacherId: String(t.id),
-                    name: t.name,
-                    subject: t.subject,
-                    status: teacherAttendanceBatch[t.id] || 'present'
-                }));
-
-                try {
-                    const batch = db.batch();
-
-                    if (existingLog && existingLog.records) {
-                        existingLog.records.forEach(r => {
-                            const ref = db.collection('teachers').doc(r.teacherId);
-                            if (r.status === 'present') batch.update(ref, { presentCount: firebase.firestore.FieldValue.increment(-1) });
-                            else if (r.status === 'absent') batch.update(ref, { absentCount: firebase.firestore.FieldValue.increment(-1) });
-                            else if (r.status === 'excused') batch.update(ref, { excusedCount: firebase.firestore.FieldValue.increment(-1) });
-                        });
-                    }
-
-                    snapshotRecords.forEach(r => {
-                        const ref = db.collection('teachers').doc(r.teacherId);
-                        if (r.status === 'present') batch.update(ref, { presentCount: firebase.firestore.FieldValue.increment(1) });
-                        else if (r.status === 'absent') batch.update(ref, { absentCount: firebase.firestore.FieldValue.increment(1) });
-                        else if (r.status === 'excused') batch.update(ref, { excusedCount: firebase.firestore.FieldValue.increment(1) });
-                    });
-
-                    const logRef = db.collection('teacher_attendance_logs').doc(logId);
-                    batch.set(logRef, {
-                        id: logId,
-                        date: today,
-                        timestamp: firebase.firestore.FieldValue.serverTimestamp(),
-                        records: snapshotRecords
-                    });
-
-                    await batch.commit();
-                    showToast("تم حفظ تحضير المعلمين بنجاح (بدون إرسال رسائل)");
-                } catch (err) {
-                    showToast("تعذر حفظ تحضير المعلمين", "error");
-                }
-            };
-
             const handleExcelFileSelect = (e) => {
                 const file = e.target.files[0];
                 if (!file) return;
@@ -599,7 +603,6 @@
                 }
             };
 
-            // تصدير التقرير إلى Excel متضمناً تواريخ أيام الغياب الفعلية
             const exportAbsencesToExcel = () => {
                 if (filteredStudents.length === 0) {
                     showToast("لا توجد بيانات طلاب لتصديرها", "error");
@@ -611,7 +614,6 @@
                     const hw = Number(s.missedHomework) || 0;
                     const hwAlert = getHomeworkAlert(hw);
 
-                    // استخراج تواريخ الغياب الدقيقة من كشوفات التحضير
                     const absenceDates = logs
                         .filter(l => l.records && l.records.some(r => String(r.studentId) === String(s.id) && r.status === 'absent'))
                         .map(l => l.date)
@@ -720,20 +722,17 @@
                 return <span className="bg-slate-100 text-slate-500 px-2 py-0.5 rounded-md text-xs">لا يوجد</span>;
             };
 
-            // التصفية الشاملة مع فلاتر الغياب وحالة الواجبات
             const filteredStudents = useMemo(() => {
                 return students.filter(s => {
                     const matchGroup = filterGroup === 'ALL' || String(s.group).trim() === filterGroup;
                     const matchSearch = s.name.includes(search) || s.phone.includes(search);
                     
-                    // فلترة حالة الغياب
                     let matchAbsence = true;
                     const absCategory = getAbsenceCategory(s.absences);
                     if (filterAbsence === 'NORMAL') matchAbsence = absCategory === 'normal';
                     else if (filterAbsence === 'WARNING') matchAbsence = absCategory === 'warning';
                     else if (filterAbsence === 'DANGER') matchAbsence = absCategory === 'danger';
 
-                    // فلترة حالة الواجبات
                     let matchHomework = true;
                     const hwAlert = getHomeworkAlert(s.missedHomework);
                     if (filterHomework !== 'ALL') {
@@ -780,12 +779,33 @@
                     <main className="p-4 md:p-6">
                         {role === 'monitor' ? (
                             <div className="space-y-6">
-                                {!activeMonitorGroup ? (
+                                {/* الصفحة الرئيسية للمسجل */}
+                                {!activeMonitorGroup && !isMonitoringTeachers ? (
                                     <div className="space-y-4">
+                                        {/* بطاقة تحضير المعلمين السريعة في بوابة الرصد */}
+                                        <div 
+                                            onClick={() => setIsMonitoringTeachers(true)}
+                                            className="bg-gradient-to-r from-blue-700 to-indigo-700 text-white p-5 rounded-3xl shadow-lg hover:shadow-xl cursor-pointer flex justify-between items-center transition-all border border-blue-500"
+                                        >
+                                            <div className="space-y-1">
+                                                <div className="flex items-center gap-2">
+                                                    <span className="bg-white/20 px-3 py-1 rounded-xl text-xs font-bold">رصد خاص</span>
+                                                    <h2 className="font-extrabold text-xl">📋 تحضير المعلمين لليوم</h2>
+                                                </div>
+                                                <p className="text-xs text-blue-100">رصد الحضور اليومي للمعلمين واعتماده سحابياً ({teachers.length} معلم)</p>
+                                                {teacherLogs.some(l => l.date === getTodayDateStr()) && (
+                                                    <span className="inline-block text-[11px] bg-emerald-500 text-white font-bold px-2 py-0.5 rounded">
+                                                        ✓ تم رصد حضور المعلمين اليوم (اضغط للتعديل)
+                                                    </span>
+                                                )}
+                                            </div>
+                                            <span className="text-3xl font-bold bg-white/10 w-12 h-12 rounded-2xl flex items-center justify-center">←</span>
+                                        </div>
+
                                         <div className="bg-blue-50 p-5 rounded-2xl border border-blue-100 flex justify-between items-center">
                                             <div>
-                                                <h2 className="font-bold text-blue-900 text-lg">قائمة الحلقات والصفوف</h2>
-                                                <p className="text-xs text-blue-600 mt-1">اختر الحلقة لبدء رصد الحضور أو متابعة الواجبات</p>
+                                                <h2 className="font-bold text-blue-900 text-lg">قائمة الحلقات والصفوف (تحضير وواجبات الطلاب)</h2>
+                                                <p className="text-xs text-blue-600 mt-1">اختر الحلقة لبدء رصد الحضور أو متابعة تسليم الواجبات</p>
                                             </div>
                                             <span className="bg-blue-600 text-white text-xs font-bold px-3 py-1.5 rounded-xl">{groups.length} حلقات</span>
                                         </div>
@@ -816,7 +836,50 @@
                                             })}
                                         </div>
                                     </div>
+                                ) : isMonitoringTeachers ? (
+                                    /* شاشة تحضير المعلمين داخل بوابة الرصد */
+                                    <div className="space-y-4 max-w-3xl mx-auto">
+                                        <div className="flex items-center justify-between bg-white p-4 rounded-2xl border border-slate-100 shadow-sm">
+                                            <button onClick={() => setIsMonitoringTeachers(false)} className="text-xs font-bold text-slate-600 bg-slate-100 px-3 py-2 rounded-xl">
+                                                → رجوع لقائمة الرصد
+                                            </button>
+                                            <h2 className="font-bold text-lg text-slate-800">تحضير المعلمين ({getTodayDateStr()})</h2>
+                                            <div className="flex gap-2 text-xs font-bold">
+                                                <span className="text-emerald-600">{Object.values(teacherAttendanceBatch).filter(v => v === 'present').length} حاضر</span>
+                                                <span className="text-red-500">{Object.values(teacherAttendanceBatch).filter(v => v === 'absent').length} غائب</span>
+                                            </div>
+                                        </div>
+
+                                        <div className="bg-white rounded-3xl shadow-sm border border-slate-100 overflow-hidden divide-y divide-slate-50">
+                                            {teachers.map(t => {
+                                                const currentStatus = teacherAttendanceBatch[t.id] || 'present';
+                                                return (
+                                                    <div key={t.id} className={`p-4 flex flex-wrap justify-between items-center transition-colors gap-2 ${currentStatus === 'absent' ? 'bg-red-50' : currentStatus === 'excused' ? 'bg-amber-50' : ''}`}>
+                                                        <div>
+                                                            <span className="font-bold text-base text-slate-800">{t.name}</span>
+                                                            <span className="text-xs text-slate-400 block">{t.subject}</span>
+                                                        </div>
+                                                        <div className="flex gap-1 bg-slate-100 p-1 rounded-xl">
+                                                            <button onClick={() => setTeacherAttendanceBatch(prev => ({...prev, [t.id]: 'present'}))} className={`px-4 py-1.5 rounded-lg text-xs font-bold ${currentStatus === 'present' ? 'bg-emerald-600 text-white' : 'text-slate-600'}`}>حاضر</button>
+                                                            <button onClick={() => setTeacherAttendanceBatch(prev => ({...prev, [t.id]: 'excused'}))} className={`px-4 py-1.5 rounded-lg text-xs font-bold ${currentStatus === 'excused' ? 'bg-amber-500 text-white' : 'text-slate-600'}`}>مستئذن</button>
+                                                            <button onClick={() => setTeacherAttendanceBatch(prev => ({...prev, [t.id]: 'absent'}))} className={`px-4 py-1.5 rounded-lg text-xs font-bold ${currentStatus === 'absent' ? 'bg-red-600 text-white' : 'text-slate-600'}`}>غائب</button>
+                                                        </div>
+                                                    </div>
+                                                );
+                                            })}
+                                            {teachers.length === 0 && (
+                                                <div className="text-center py-8 text-slate-400 text-xs">لا يوجد معلمون مسجلون في النظام</div>
+                                            )}
+                                        </div>
+
+                                        {teachers.length > 0 && (
+                                            <button onClick={submitTeacherAttendance} className="w-full bg-emerald-600 hover:bg-emerald-700 text-white py-4 rounded-2xl font-bold shadow-lg transition-all">
+                                                اعتماد تحضير المعلمين سحابياً ✓
+                                            </button>
+                                        )}
+                                    </div>
                                 ) : (
+                                    /* شاشة رصد الطلاب (حضور أو واجبات) */
                                     <div className="space-y-4 max-w-2xl mx-auto">
                                         <div className="flex items-center justify-between bg-white p-4 rounded-2xl border border-slate-100 shadow-sm">
                                             <button onClick={() => setActiveMonitorGroup(null)} className="text-xs font-bold text-slate-600 bg-slate-100 px-3 py-2 rounded-xl">
@@ -910,7 +973,7 @@
                                         { id: 'students', label: 'الطلاب والحلقات' },
                                         { id: 'homework_records', label: 'متابعة وتنبيهات الواجبات' },
                                         { id: 'pledges', label: `التعهدات (${pledgeLogs.length})` },
-                                        { id: 'teachers', label: `تحضير المعلمين (${teachers.length})` },
+                                        { id: 'teachers', label: `سجل وإدارة المعلمين (${teachers.length})` },
                                         { id: 'settings', label: 'قوالب الرسائل' }
                                     ].map(t => (
                                         <button 
@@ -1064,7 +1127,6 @@
 
                                 {view === 'students' && (
                                     <div className="space-y-4">
-                                        {/* شريط الإجراءات الأساسي */}
                                         <div className="flex flex-wrap justify-between items-center gap-3 bg-white p-5 rounded-3xl border border-slate-100 shadow-sm">
                                             <div className="flex flex-wrap gap-2">
                                                 <button onClick={() => setShowAddModal(true)} className="bg-blue-600 text-white px-4 py-2 rounded-xl text-xs font-bold">+ إضافة طالب</button>
@@ -1083,17 +1145,14 @@
                                             />
                                         </div>
 
-                                        {/* شريط الفلاتر المتقدمة لحالة الغياب والواجبات */}
                                         <div className="bg-white p-4 rounded-3xl border border-slate-100 shadow-sm flex flex-wrap items-center gap-3 text-xs">
                                             <span className="font-bold text-slate-500">🔍 تصفية مخصصة:</span>
                                             
-                                            {/* فلتر الحلقة */}
                                             <select value={filterGroup} onChange={e => setFilterGroup(e.target.value)} className="bg-slate-50 border rounded-xl px-3 py-1.5 font-bold">
                                                 <option value="ALL">جميع الحلقات ({students.length})</option>
                                                 {groups.map(g => <option key={g} value={g}>{g}</option>)}
                                             </select>
 
-                                            {/* فلتر حالة الغياب */}
                                             <select value={filterAbsence} onChange={e => setFilterAbsence(e.target.value)} className="bg-slate-50 border rounded-xl px-3 py-1.5 font-bold">
                                                 <option value="ALL">جميع حالات الغياب</option>
                                                 <option value="NORMAL">غياب طبيعي (أقل من 3)</option>
@@ -1101,7 +1160,6 @@
                                                 <option value="DANGER">خطر أحمر (6 غيابات فأكثر)</option>
                                             </select>
 
-                                            {/* فلتر حالة الواجبات */}
                                             <select value={filterHomework} onChange={e => setFilterHomework(e.target.value)} className="bg-slate-50 border rounded-xl px-3 py-1.5 font-bold">
                                                 <option value="ALL">جميع حالات الواجبات</option>
                                                 <option value="none">منتظم (أقل من 5)</option>
@@ -1353,64 +1411,50 @@
                                     </div>
                                 )}
 
+                                {/* تبويب المعلمين في لوحة الإشراف (إحصاء وإدارة) */}
                                 {view === 'teachers' && (
                                     <div className="space-y-6">
                                         <div className="bg-white p-5 rounded-3xl border border-slate-100 shadow-sm flex flex-wrap justify-between items-center gap-4">
                                             <div>
-                                                <h3 className="font-bold text-slate-800 text-lg">بوابة رصد واحتساب حضور المعلمين</h3>
-                                                <p className="text-xs text-slate-400 mt-1">تتيح رصد الحضور الداخلي دون إرسال أي إشعارات أو رسائل عبر واتساب</p>
+                                                <h3 className="font-bold text-slate-800 text-lg">سجل المعلمين والإحصائيات التراكمية</h3>
+                                                <p className="text-xs text-slate-400 mt-1">يتم رصد الحضور اليومي للمعلمين من قبل المسجل في بوابة الرصد</p>
                                             </div>
-                                            <div className="flex gap-2">
-                                                <button onClick={() => setShowAddTeacherModal(true)} className="bg-blue-600 text-white px-4 py-2 rounded-xl text-xs font-bold">+ إضافة معلم</button>
-                                                <button onClick={submitTeacherAttendance} className="bg-emerald-600 hover:bg-emerald-700 text-white px-5 py-2 rounded-xl text-xs font-bold shadow-md transition-all">
-                                                    اعتماد حضور اليوم سحابياً ✓
-                                                </button>
-                                            </div>
+                                            <button onClick={() => setShowAddTeacherModal(true)} className="bg-blue-600 text-white px-4 py-2 rounded-xl text-xs font-bold">+ إضافة معلم جديد</button>
                                         </div>
 
                                         <div className="bg-white rounded-3xl border border-slate-100 shadow-sm overflow-hidden">
-                                            <div className="p-4 border-b bg-slate-50 flex justify-between items-center">
-                                                <span className="font-bold text-xs text-slate-700">تحضير تاريخ اليوم: {getTodayDateStr()}</span>
-                                                <span className="text-xs text-slate-500">إجمالي المعلمين: {teachers.length}</span>
-                                            </div>
                                             <div className="overflow-x-auto">
                                                 <table className="w-full text-right text-sm">
                                                     <thead className="bg-slate-50 text-slate-500 text-xs">
                                                         <tr>
                                                             <th className="p-4 font-bold">اسم المعلم</th>
                                                             <th className="p-4 font-bold">التخصص / الحلقة</th>
-                                                            <th className="p-4 font-bold">حالة اليوم</th>
-                                                            <th className="p-4 font-bold text-emerald-600">أيام الحضور</th>
-                                                            <th className="p-4 font-bold text-red-600">أيام الغياب</th>
-                                                            <th className="p-4 font-bold text-amber-600">أيام الاستئذان</th>
-                                                            <th className="p-4 font-bold text-center">حذف</th>
+                                                            <th className="p-4 font-bold text-emerald-600">إجمالي أيام الحضور</th>
+                                                            <th className="p-4 font-bold text-red-600">إجمالي أيام الغياب</th>
+                                                            <th className="p-4 font-bold text-amber-600">إجمالي أيام الاستئذان</th>
+                                                            <th className="p-4 font-bold text-center">إجراءات</th>
                                                         </tr>
                                                     </thead>
                                                     <tbody className="divide-y divide-slate-100">
-                                                        {teachers.map(t => {
-                                                            const currentStatus = teacherAttendanceBatch[t.id] || 'present';
-                                                            return (
-                                                                <tr key={t.id} className="hover:bg-slate-50">
-                                                                    <td className="p-4 font-bold text-slate-800">{t.name}</td>
-                                                                    <td className="p-4 text-slate-500">{t.subject}</td>
-                                                                    <td className="p-4">
-                                                                        <div className="inline-flex gap-1 bg-slate-100 p-1 rounded-xl">
-                                                                            <button onClick={() => setTeacherAttendanceBatch(prev => ({...prev, [t.id]: 'present'}))} className={`px-3 py-1 rounded-lg text-xs font-bold ${currentStatus === 'present' ? 'bg-emerald-600 text-white' : 'text-slate-600'}`}>حاضر</button>
-                                                                            <button onClick={() => setTeacherAttendanceBatch(prev => ({...prev, [t.id]: 'excused'}))} className={`px-3 py-1 rounded-lg text-xs font-bold ${currentStatus === 'excused' ? 'bg-amber-500 text-white' : 'text-slate-600'}`}>مستئذن</button>
-                                                                            <button onClick={() => setTeacherAttendanceBatch(prev => ({...prev, [t.id]: 'absent'}))} className={`px-3 py-1 rounded-lg text-xs font-bold ${currentStatus === 'absent' ? 'bg-red-600 text-white' : 'text-slate-600'}`}>غائب</button>
-                                                                        </div>
-                                                                    </td>
-                                                                    <td className="p-4 font-extrabold text-emerald-600">{t.presentCount || 0} يوم</td>
-                                                                    <td className="p-4 font-extrabold text-red-600">{t.absentCount || 0} يوم</td>
-                                                                    <td className="p-4 font-extrabold text-amber-600">{t.excusedCount || 0} يوم</td>
-                                                                    <td className="p-4 text-center">
-                                                                        <button onClick={() => handleDeleteTeacher(t.id, t.name)} className="text-red-500 hover:text-red-700 font-bold text-xs">✕</button>
-                                                                    </td>
-                                                                </tr>
-                                                            );
-                                                        })}
+                                                        {teachers.map(t => (
+                                                            <tr key={t.id} className="hover:bg-slate-50">
+                                                                <td className="p-4 font-bold text-slate-800">{t.name}</td>
+                                                                <td className="p-4 text-slate-500">{t.subject}</td>
+                                                                <td className="p-4 font-extrabold text-emerald-600">{t.presentCount || 0} يوم</td>
+                                                                <td className="p-4 font-extrabold text-red-600">{t.absentCount || 0} يوم</td>
+                                                                <td className="p-4 font-extrabold text-amber-600">{t.excusedCount || 0} يوم</td>
+                                                                <td className="p-4 text-center">
+                                                                    <button onClick={() => handleDeleteTeacher(t.id, t.name)} className="text-red-500 hover:text-red-700 font-bold text-xs">
+                                                                        حذف 🗑️
+                                                                    </button>
+                                                                </td>
+                                                            </tr>
+                                                        ))}
                                                     </tbody>
                                                 </table>
+                                                {teachers.length === 0 && (
+                                                    <div className="text-center py-10 text-slate-400 text-xs">لا يوجد معلمون مسجلون بعد. اضغط على "+ إضافة معلم جديد" للبدء.</div>
+                                                )}
                                             </div>
                                         </div>
                                     </div>
