@@ -88,6 +88,14 @@
             return 'normal';
         };
 
+        const EXAM_TYPES = [
+            { id: 'formative_1', title: 'الاختبار البنائي الأول', isFinal: false },
+            { id: 'formative_2', title: 'الاختبار البنائي الثاني', isFinal: false },
+            { id: 'formative_3', title: 'الاختبار البنائي الثالث', isFinal: false },
+            { id: 'formative_4', title: 'الاختبار البنائي الرابع', isFinal: false },
+            { id: 'final_exam', title: 'الاختبار النهائي', isFinal: true }
+        ];
+
         const App = () => {
             const [role, setRole] = useState(null);
             const [view, setView] = useState('inbox');
@@ -103,7 +111,9 @@
             const [settings, setSettings] = useState({ 
                 absence_template: "عزيزي ولي أمر الطالب {student_name}، نفيدكم بغيابه اليوم {date}. إجمالي غياباته: {absence_count}",
                 excused_template: "عزيزي ولي أمر الطالب {student_name}، تم تسجيل استئذان الطالب اليوم {date} بعذر مقبول.",
-                homework_template: "عزيزي ولي أمر الطالب {student_name}، نود إشعاركم بعدم تسليمه لواجب اليوم {date}. إجمالي مرات عدم التسليم: {missed_count} واجبات ({alert_status}). نأمل متابعته حرصاً على مستواه."
+                homework_template: "عزيزي ولي أمر الطالب {student_name}، نود إشعاركم بعدم تسليمه لواجب اليوم {date}. إجمالي مرات عدم التسليم: {missed_count} واجبات ({alert_status}). نأمل متابعته حرصاً على مستواه.",
+                formative_exam_template: "السلام عليكم ورحمة الله وبركاته، نفيدكم بنتيجة الطالب {student_name} في ({exam_name}): تقدير الطالب هو [{grade}]. نسأل الله له دوام التوفيق والتميز.",
+                final_exam_template: "السلام عليكم ورحمة الله وبركاته، نبارك لكم نتائج نهاية الفصل. نفيدكم بأن الطالب {student_name} في (الاختبار النهائي) قد حصل على نتيجة: [{grade}]. سائلين المولى له التوفيق."
             });
             const [toast, setToast] = useState(null);
 
@@ -126,6 +136,10 @@
             const [search, setSearch] = useState('');
             const fileInputRef = useRef(null);
 
+            // إدارة الاختبارات
+            const [selectedExamType, setSelectedExamType] = useState('formative_1');
+            const [examFilterGroup, setExamFilterGroup] = useState('ALL');
+
             // التعهدات
             const [showPledgeModal, setShowPledgeModal] = useState(null);
             const [pledgeReason, setPledgeReason] = useState('');
@@ -139,7 +153,14 @@
 
             useEffect(() => {
                 const unsubStudents = db.collection('students').onSnapshot(snap => {
-                    setStudents(snap.docs.map(doc => ({ id: doc.id, pledges: 0, missedHomework: 0, absences: 0, ...doc.data() })));
+                    setStudents(snap.docs.map(doc => ({ 
+                        id: doc.id, 
+                        pledges: 0, 
+                        missedHomework: 0, 
+                        absences: 0, 
+                        exams: {}, 
+                        ...doc.data() 
+                    })));
                 }, () => showToast("يرجى التأكد من تفعيل Firestore Database", "error"));
 
                 const unsubTeachers = db.collection('teachers').onSnapshot(snap => {
@@ -201,7 +222,6 @@
                 return [...teachers].sort((a, b) => (a.name || '').localeCompare(b.name || '', 'ar'));
             }, [teachers]);
 
-            // التحقق من تسجيل الدخول وإخفاء الرموز للخصوصية
             const handleLogin = () => {
                 if (pin === '1234') {
                     setRole('supervisor');
@@ -415,6 +435,18 @@
                 }
             };
 
+            // حفظ درجة اختبار الطالب سحابياً
+            const handleUpdateStudentExam = async (studentId, examKey, grade) => {
+                try {
+                    await db.collection('students').doc(studentId).update({
+                        [`exams.${examKey}`]: grade
+                    });
+                    showToast("تم تسجيل درجة الاختبار بنجاح");
+                } catch (err) {
+                    showToast("تعذر حفظ درجة الاختبار", "error");
+                }
+            };
+
             const handleDeleteHwLog = async (logId) => {
                 if (!confirm("هل تريد إزالة كشف الواجبات هذا بالكامل من الوارد؟")) return;
                 try {
@@ -587,6 +619,7 @@
                                 absences: parseInt(clean['غيابات'] || 0) || 0,
                                 missedHomework: parseInt(clean['واجبات'] || clean['عدم تسليم الواجبات'] || 0) || 0,
                                 pledges: parseInt(clean['تعهدات'] || 0) || 0,
+                                exams: {},
                                 active: isActive
                             };
                         }).filter(s => s.name && s.name.length > 1);
@@ -648,6 +681,11 @@
                         "عدم تسليم الواجبات": hw,
                         "تنبيه الواجبات": hwAlert.text,
                         "عدد التعهدات": s.pledges || 0,
+                        "بنائي 1": s.exams?.formative_1 || "غير مرصود",
+                        "بنائي 2": s.exams?.formative_2 || "غير مرصود",
+                        "بنائي 3": s.exams?.formative_3 || "غير مرصود",
+                        "بنائي 4": s.exams?.formative_4 || "غير مرصود",
+                        "النهائي": s.exams?.final_exam || "غير مرصود",
                         "حالة القيد": s.active ? "مستمر" : "منقطع"
                     };
                 });
@@ -658,7 +696,7 @@
                 
                 const fileName = `تقرير_الطلاب_${filterGroup === 'ALL' ? 'الكل' : filterGroup}_${getTodayDateStr()}.xlsx`;
                 XLSX.writeFile(wb, fileName);
-                showToast("تم تصدير التقرير الشامل متضمناً تواريخ الغياب بنجاح");
+                showToast("تم تصدير التقرير الشامل متضمناً نتائج الاختبارات بنجاح");
             };
 
             const handleAddManualStudent = async (e) => {
@@ -673,6 +711,7 @@
                         absences: 0,
                         missedHomework: 0,
                         pledges: 0,
+                        exams: {},
                         active: newStudent.active
                     });
                     setNewStudent({ name: '', phone: '', group: '', active: true, pledges: 0, missedHomework: 0 });
@@ -761,12 +800,19 @@
                 }).sort((a, b) => (a.name || '').localeCompare(b.name || '', 'ar'));
             }, [students, filterGroup, filterAbsence, filterHomework, search]);
 
+            // الطلاب المخصصين لتبويب الاختبارات
+            const examFilteredStudents = useMemo(() => {
+                return students.filter(s => {
+                    return (examFilterGroup === 'ALL' || String(s.group).trim() === examFilterGroup) && s.active;
+                }).sort((a, b) => (a.name || '').localeCompare(b.name || '', 'ar'));
+            }, [students, examFilterGroup]);
+
             if (!role) return (
                 <div className="min-h-screen flex items-center justify-center p-4 bg-slate-900">
                     <div className="max-w-md w-full bg-white rounded-3xl shadow-2xl p-8 space-y-6 text-center">
                         <div className="w-16 h-16 bg-blue-600 text-white text-3xl font-bold rounded-2xl flex items-center justify-center mx-auto mb-4 shadow-lg">✓</div>
                         <h1 className="text-2xl font-extrabold text-slate-800">منصة إتقان السحابية</h1>
-                        <p className="text-slate-400 text-sm">مزامنة سحابية: الغياب، الواجبات، التعهدات، وتحضير المعلمين</p>
+                        <p className="text-slate-400 text-sm">مزامنة سحابية: الغياب، الواجبات، الاختبارات، التعهدات</p>
                         <div className="space-y-4">
                             <input 
                                 type="password" 
@@ -952,7 +998,7 @@
                                         {monitorMode === 'homework' && (
                                             <>
                                                 <div className="bg-purple-50 p-3 rounded-2xl text-xs text-purple-900 border border-purple-100 flex justify-between items-center">
-                                                    <span>رصد تسليم الواجبات مرتبة هجائياً (الحد الأقصى 15 واجباً)</span>
+                                                    <span>رصد تسليم الواجبات مرتبة هجائياً (الحد الأقصى 15 واجباً)[cite: 1]</span>
                                                     <span className="font-bold text-purple-700">لم يسلموا: {Object.values(homeworkBatch).filter(v => v === 'missed').length}</span>
                                                 </div>
                                                 <div className="bg-white rounded-3xl shadow-sm border border-slate-100 overflow-hidden divide-y divide-slate-50">
@@ -994,6 +1040,7 @@
                                     {[
                                         { id: 'inbox', label: `الوارد (${logs.length + homeworkLogs.length})` },
                                         { id: 'students', label: 'الطلاب والحلقات' },
+                                        { id: 'exams', label: 'الاختبارات والتقييمات' },
                                         { id: 'homework_records', label: 'متابعة وتنبيهات الواجبات' },
                                         { id: 'pledges', label: `التعهدات (${pledgeLogs.length})` },
                                         { id: 'teachers', label: `سجل وإدارة المعلمين (${teachers.length})` },
@@ -1126,7 +1173,7 @@
                                                                                     <span className="font-bold text-sm text-slate-800">{r.name}</span>
                                                                                     <span className={`text-[10px] px-2 py-0.5 rounded font-bold ${alert.color}`}>{alert.text}</span>
                                                                                 </div>
-                                                                                <div className="text-xs text-slate-400 mt-0.5">عدم التسليم التراكمي: {count} واجبات (الحد الأقصى 15)</div>
+                                                                                <div className="text-xs text-slate-400 mt-0.5">عدم التسليم التراكمي: {count} واجبات (الحد الأقصى 15)[cite: 1]</div>
                                                                             </div>
                                                                             <a href={`https://wa.me/${r.phone}?text=${encodeURIComponent(msg)}`} target="_blank" className="bg-emerald-500 hover:bg-emerald-600 text-white px-3 py-1 rounded-xl text-xs font-bold">
                                                                                 إشعار ولي الأمر عبر واتساب 💬
@@ -1189,10 +1236,10 @@
                                             <select value={filterHomework} onChange={e => setFilterHomework(e.target.value)} className="bg-slate-50 border rounded-xl px-3 py-1.5 font-bold">
                                                 <option value="ALL">جميع حالات الواجبات</option>
                                                 <option value="none">منتظم (أقل من 5)</option>
-                                                <option value="first">التنبيه الأول (5 واجبات)</option>
-                                                <option value="second">التنبيه الثاني (10 واجبات)</option>
-                                                <option value="final">التنبيه النهائي (14 واجباً)</option>
-                                                <option value="exceeded">تجاوز الحد (15 واجباً فأكثر)</option>
+                                                <option value="first">التنبيه الأول (5 واجبات)[cite: 1]</option>
+                                                <option value="second">التنبيه الثاني (10 واجبات)[cite: 1]</option>
+                                                <option value="final">التنبيه النهائي (14 واجباً)[cite: 1]</option>
+                                                <option value="exceeded">تجاوز الحد (15 واجباً فأكثر)[cite: 1]</option>
                                             </select>
 
                                             {(filterGroup !== 'ALL' || filterAbsence !== 'ALL' || filterHomework !== 'ALL') && (
@@ -1294,29 +1341,166 @@
                                     </div>
                                 )}
 
+                                {/* تبويب الاختبارات والتقييمات */}
+                                {view === 'exams' && (
+                                    <div className="space-y-6">
+                                        <div className="bg-white p-5 rounded-3xl border border-slate-100 shadow-sm flex flex-wrap justify-between items-center gap-4">
+                                            <div>
+                                                <h3 className="font-bold text-slate-800 text-lg">بوابة رصد وإرسال نتائج الاختبارات</h3>
+                                                <p className="text-xs text-slate-400 mt-1">4 اختبارات بنائية (متمكن، ضعيف، مخفق) واختبار نهائي (مجتاز، غير مجتاز)</p>
+                                            </div>
+                                            
+                                            <div className="flex flex-wrap gap-2">
+                                                <select 
+                                                    value={selectedExamType} 
+                                                    onChange={e => setSelectedExamType(e.target.value)}
+                                                    className="bg-blue-50 text-blue-900 border border-blue-200 rounded-xl px-4 py-2 text-xs font-bold outline-none"
+                                                >
+                                                    {EXAM_TYPES.map(ex => (
+                                                        <option key={ex.id} value={ex.id}>{ex.title}</option>
+                                                    ))}
+                                                </select>
+
+                                                <select 
+                                                    value={examFilterGroup} 
+                                                    onChange={e => setExamFilterGroup(e.target.value)}
+                                                    className="bg-slate-50 border rounded-xl px-4 py-2 text-xs font-bold outline-none"
+                                                >
+                                                    <option value="ALL">جميع الحلقات</option>
+                                                    {groups.map(g => <option key={g} value={g}>{g}</option>)}
+                                                </select>
+                                            </div>
+                                        </div>
+
+                                        <div className="bg-white rounded-3xl border border-slate-100 shadow-sm overflow-hidden">
+                                            <div className="p-4 border-b bg-slate-50 flex justify-between items-center text-xs">
+                                                <span className="font-bold text-slate-700">
+                                                    الاختبار المحدد: <span className="text-blue-600">{EXAM_TYPES.find(x => x.id === selectedExamType)?.title}</span>
+                                                </span>
+                                                <span className="text-slate-500">الطلاب: {examFilteredStudents.length} (أبجدياً)</span>
+                                            </div>
+
+                                            <div className="overflow-x-auto">
+                                                <table className="w-full text-right text-sm">
+                                                    <thead className="bg-slate-50 text-slate-500 text-xs">
+                                                        <tr>
+                                                            <th className="p-4 font-bold">اسم الطالب</th>
+                                                            <th className="p-4 font-bold">الحلقة</th>
+                                                            <th className="p-4 font-bold text-center">الدرجة / التقدير</th>
+                                                            <th className="p-4 font-bold text-center">إشعار ولي الأمر</th>
+                                                        </tr>
+                                                    </thead>
+                                                    <tbody className="divide-y divide-slate-100">
+                                                        {examFilteredStudents.map(s => {
+                                                            const currentGrade = s.exams?.[selectedExamType] || '';
+                                                            const isFinal = selectedExamType === 'final_exam';
+                                                            const examTitle = EXAM_TYPES.find(x => x.id === selectedExamType)?.title;
+
+                                                            // توليد رسالة الواتساب المخصصة للاختبار
+                                                            let whatsappMsg = '';
+                                                            if (isFinal) {
+                                                                whatsappMsg = settings.final_exam_template
+                                                                    .replace(/{student_name}/g, s.name)
+                                                                    .replace(/{grade}/g, currentGrade || 'لم تحدد بعد');
+                                                            } else {
+                                                                whatsappMsg = settings.formative_exam_template
+                                                                    .replace(/{student_name}/g, s.name)
+                                                                    .replace(/{exam_name}/g, examTitle)
+                                                                    .replace(/{grade}/g, currentGrade || 'لم تحدد بعد');
+                                                            }
+
+                                                            return (
+                                                                <tr key={s.id} className="hover:bg-slate-50">
+                                                                    <td className="p-4">
+                                                                        <div className="font-bold text-slate-800">{s.name}</div>
+                                                                        <div className="text-xs text-slate-400" dir="ltr">{s.phone}</div>
+                                                                    </td>
+                                                                    <td className="p-4 text-slate-600 font-medium">{s.group}</td>
+                                                                    <td className="p-4 text-center">
+                                                                        {isFinal ? (
+                                                                            <div className="inline-flex gap-1 bg-slate-100 p-1 rounded-xl">
+                                                                                <button 
+                                                                                    onClick={() => handleUpdateStudentExam(s.id, selectedExamType, 'مجتاز')}
+                                                                                    className={`px-4 py-1.5 rounded-lg text-xs font-bold transition-all ${currentGrade === 'مجتاز' ? 'bg-emerald-600 text-white shadow-sm' : 'text-slate-600'}`}
+                                                                                >
+                                                                                    مجتاز ✓
+                                                                                </button>
+                                                                                <button 
+                                                                                    onClick={() => handleUpdateStudentExam(s.id, selectedExamType, 'غير مجتاز')}
+                                                                                    className={`px-4 py-1.5 rounded-lg text-xs font-bold transition-all ${currentGrade === 'غير مجتاز' ? 'bg-red-600 text-white shadow-sm' : 'text-slate-600'}`}
+                                                                                >
+                                                                                    غير مجتاز ✕
+                                                                                </button>
+                                                                            </div>
+                                                                        ) : (
+                                                                            <div className="inline-flex gap-1 bg-slate-100 p-1 rounded-xl">
+                                                                                <button 
+                                                                                    onClick={() => handleUpdateStudentExam(s.id, selectedExamType, 'متمكن')}
+                                                                                    className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-all ${currentGrade === 'متمكن' ? 'bg-emerald-600 text-white shadow-sm' : 'text-slate-600'}`}
+                                                                                >
+                                                                                    متمكن 🌟
+                                                                                </button>
+                                                                                <button 
+                                                                                    onClick={() => handleUpdateStudentExam(s.id, selectedExamType, 'ضعيف')}
+                                                                                    className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-all ${currentGrade === 'ضعيف' ? 'bg-amber-500 text-white shadow-sm' : 'text-slate-600'}`}
+                                                                                >
+                                                                                    ضعيف ⚠️
+                                                                                </button>
+                                                                                <button 
+                                                                                    onClick={() => handleUpdateStudentExam(s.id, selectedExamType, 'مخفق')}
+                                                                                    className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-all ${currentGrade === 'مخفق' ? 'bg-red-600 text-white shadow-sm' : 'text-slate-600'}`}
+                                                                                >
+                                                                                    مخفق ✕
+                                                                                </button>
+                                                                            </div>
+                                                                        )}
+                                                                    </td>
+                                                                    <td className="p-4 text-center">
+                                                                        {currentGrade ? (
+                                                                            <a 
+                                                                                href={`https://wa.me/${s.phone}?text=${encodeURIComponent(whatsappMsg)}`} 
+                                                                                target="_blank" 
+                                                                                className="inline-flex items-center gap-1 bg-emerald-500 hover:bg-emerald-600 text-white px-3 py-1.5 rounded-xl text-xs font-bold transition-all"
+                                                                            >
+                                                                                إرسال النتيجة واتساب 💬
+                                                                            </a>
+                                                                        ) : (
+                                                                            <span className="text-xs text-slate-300 font-bold">بانتظار الرصد</span>
+                                                                        )}
+                                                                    </td>
+                                                                </tr>
+                                                            );
+                                                        })}
+                                                    </tbody>
+                                                </table>
+                                            </div>
+                                        </div>
+                                    </div>
+                                )}
+
                                 {view === 'homework_records' && (
                                     <div className="space-y-6">
                                         <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
                                             <div className="bg-white p-5 rounded-3xl border border-slate-100 shadow-sm">
-                                                <div className="text-xs text-yellow-700 font-bold">التنبيه الأول (5 واجبات)</div>
+                                                <div className="text-xs text-yellow-700 font-bold">التنبيه الأول (5 واجبات)[cite: 1]</div>
                                                 <div className="text-2xl font-extrabold text-yellow-700 mt-2">
                                                     {students.filter(s => (s.missedHomework || 0) >= 5 && (s.missedHomework || 0) < 10).length} طالب
                                                 </div>
                                             </div>
                                             <div className="bg-white p-5 rounded-3xl border border-slate-100 shadow-sm">
-                                                <div className="text-xs text-amber-700 font-bold">التنبيه الثاني (10 واجبات)</div>
+                                                <div className="text-xs text-amber-700 font-bold">التنبيه الثاني (10 واجبات)[cite: 1]</div>
                                                 <div className="text-2xl font-extrabold text-amber-700 mt-2">
                                                     {students.filter(s => (s.missedHomework || 0) >= 10 && (s.missedHomework || 0) < 14).length} طالب
                                                 </div>
                                             </div>
                                             <div className="bg-white p-5 rounded-3xl border border-slate-100 shadow-sm">
-                                                <div className="text-xs text-red-700 font-bold">التنبيه النهائي (14 واجباً)</div>
+                                                <div className="text-xs text-red-700 font-bold">التنبيه النهائي (14 واجباً)[cite: 1]</div>
                                                 <div className="text-2xl font-extrabold text-red-700 mt-2">
                                                     {students.filter(s => (s.missedHomework || 0) === 14).length} طالب
                                                 </div>
                                             </div>
                                             <div className="bg-white p-5 rounded-3xl border border-slate-100 shadow-sm">
-                                                <div className="text-xs text-rose-900 font-bold">تجاوز الحد الأقصى (15+)</div>
+                                                <div className="text-xs text-rose-900 font-bold">تجاوز الحد الأقصى (15+)[cite: 1]</div>
                                                 <div className="text-2xl font-extrabold text-rose-900 mt-2">
                                                     {students.filter(s => (s.missedHomework || 0) >= 15).length} طالب
                                                 </div>
@@ -1500,7 +1684,15 @@
                                         </div>
                                         <div>
                                             <label className="block text-sm font-bold mb-2">قالب رسالة عدم تسليم الواجب (تنبيهات الواجبات)</label>
-                                            <textarea className="w-full p-4 bg-slate-50 border rounded-2xl h-28 text-sm outline-none" value={settings.homework_template} onChange={e => setSettings({...settings, homework_template: e.target.value})} />
+                                            <textarea className="w-full p-4 bg-slate-50 border rounded-2xl h-24 text-sm outline-none" value={settings.homework_template} onChange={e => setSettings({...settings, homework_template: e.target.value})} />
+                                        </div>
+                                        <div>
+                                            <label className="block text-sm font-bold mb-2">قالب رسالة نتيجة الاختبار البنائي</label>
+                                            <textarea className="w-full p-4 bg-slate-50 border rounded-2xl h-24 text-sm outline-none" value={settings.formative_exam_template} onChange={e => setSettings({...settings, formative_exam_template: e.target.value})} />
+                                        </div>
+                                        <div>
+                                            <label className="block text-sm font-bold mb-2">قالب رسالة نتيجة الاختبار النهائي</label>
+                                            <textarea className="w-full p-4 bg-slate-50 border rounded-2xl h-24 text-sm outline-none" value={settings.final_exam_template} onChange={e => setSettings({...settings, final_exam_template: e.target.value})} />
                                         </div>
                                         <button onClick={() => { db.collection('settings').doc('app_config').set(settings); showToast("تم حفظ الإعدادات سحابياً"); }} className="bg-blue-600 text-white px-8 py-3 rounded-2xl font-bold text-sm shadow-md">
                                             حفظ الإعدادات
