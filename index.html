@@ -18,8 +18,8 @@
     <script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-app-compat.js"></script>
     <script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-firestore-compat.js"></script>
     
-    <!-- XLSX -->
-    <script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
+    <!-- XLSX with Styling Support -->
+    <script src="https://cdn.jsdelivr.net/npm/xlsx-js-style@1.2.0/dist/xlsx.bundle.js"></script>
 
     <style>
         body { font-family: 'Tajawal', sans-serif; background-color: #f8fafc; }
@@ -95,6 +95,44 @@
             { id: 'formative_4', title: 'الاختبار البنائي الرابع', isFinal: false },
             { id: 'final_exam', title: 'الاختبار النهائي', isFinal: true }
         ];
+
+        // أنماط الألوان المشتركة لملفات Excel
+        const STYLES = {
+            header: {
+                fill: { fgColor: { rgb: "1E3A8A" } },
+                font: { name: "Arial", sz: 11, bold: true, color: { rgb: "FFFFFF" } },
+                alignment: { horizontal: "center", vertical: "center" },
+                border: { top: { style: "thin" }, bottom: { style: "thin" }, left: { style: "thin" }, right: { style: "thin" } }
+            },
+            normalCell: {
+                alignment: { horizontal: "center", vertical: "center" },
+                border: { top: { style: "thin", color: { rgb: "E2E8F0" } }, bottom: { style: "thin", color: { rgb: "E2E8F0" } }, left: { style: "thin", color: { rgb: "E2E8F0" } }, right: { style: "thin", color: { rgb: "E2E8F0" } } }
+            },
+            greenCell: {
+                fill: { fgColor: { rgb: "DCFCE7" } },
+                font: { color: { rgb: "166534" }, bold: true },
+                alignment: { horizontal: "center", vertical: "center" },
+                border: { top: { style: "thin", color: { rgb: "CBD5E1" } }, bottom: { style: "thin", color: { rgb: "CBD5E1" } }, left: { style: "thin", color: { rgb: "CBD5E1" } }, right: { style: "thin", color: { rgb: "CBD5E1" } } }
+            },
+            yellowCell: {
+                fill: { fgColor: { rgb: "FEF9C3" } },
+                font: { color: { rgb: "854D0E" }, bold: true },
+                alignment: { horizontal: "center", vertical: "center" },
+                border: { top: { style: "thin", color: { rgb: "CBD5E1" } }, bottom: { style: "thin", color: { rgb: "CBD5E1" } }, left: { style: "thin", color: { rgb: "CBD5E1" } }, right: { style: "thin", color: { rgb: "CBD5E1" } } }
+            },
+            orangeCell: {
+                fill: { fgColor: { rgb: "FFEDD5" } },
+                font: { color: { rgb: "9A3412" }, bold: true },
+                alignment: { horizontal: "center", vertical: "center" },
+                border: { top: { style: "thin", color: { rgb: "CBD5E1" } }, bottom: { style: "thin", color: { rgb: "CBD5E1" } }, left: { style: "thin", color: { rgb: "CBD5E1" } }, right: { style: "thin", color: { rgb: "CBD5E1" } } }
+            },
+            redCell: {
+                fill: { fgColor: { rgb: "FEE2E2" } },
+                font: { color: { rgb: "991B1B" }, bold: true },
+                alignment: { horizontal: "center", vertical: "center" },
+                border: { top: { style: "thin", color: { rgb: "CBD5E1" } }, bottom: { style: "thin", color: { rgb: "CBD5E1" } }, left: { style: "thin", color: { rgb: "CBD5E1" } }, right: { style: "thin", color: { rgb: "CBD5E1" } } }
+            }
+        };
 
         const App = () => {
             const [role, setRole] = useState(null);
@@ -435,7 +473,6 @@
                 }
             };
 
-            // حفظ درجة اختبار الطالب سحابياً
             const handleUpdateStudentExam = async (studentId, examKey, grade) => {
                 try {
                     await db.collection('students').doc(studentId).update({
@@ -654,16 +691,21 @@
                 }
             };
 
+            // 1. تصدير التقرير الشامل مع تلوين الخلايا الاحترافي
             const exportAbsencesToExcel = () => {
                 if (filteredStudents.length === 0) {
                     showToast("لا توجد بيانات طلاب لتصديرها", "error");
                     return;
                 }
 
-                const exportData = filteredStudents.map((s, idx) => {
+                const headers = ["م", "اسم الطالب", "الحلقة / الفصل", "رقم الجوال", "مجموع الغيابات", "حالة الغياب", "تواريخ أيام الغياب", "عدم تسليم الواجبات", "تنبيه الواجبات", "التعهدات", "حالة القيد"];
+                const data = [headers];
+
+                filteredStudents.forEach((s, idx) => {
                     const abs = Number(s.absences) || 0;
                     const hw = Number(s.missedHomework) || 0;
                     const hwAlert = getHomeworkAlert(hw);
+                    const absCat = getAbsenceCategory(abs);
 
                     const absenceDates = logs
                         .filter(l => l.records && l.records.some(r => String(r.studentId) === String(s.id) && r.status === 'absent'))
@@ -671,32 +713,125 @@
                         .sort()
                         .join('، ');
 
-                    return {
-                        "م": idx + 1,
-                        "اسم الطالب": s.name,
-                        "الحلقة / الفصل": s.group,
-                        "رقم الجوال": s.phone,
-                        "مجموع الغيابات": abs,
-                        "تواريخ أيام الغياب": absenceDates || (abs > 0 ? "غيابات يدوية سابقة" : "لا يوجد"),
-                        "عدم تسليم الواجبات": hw,
-                        "تنبيه الواجبات": hwAlert.text,
-                        "عدد التعهدات": s.pledges || 0,
-                        "بنائي 1": s.exams?.formative_1 || "غير مرصود",
-                        "بنائي 2": s.exams?.formative_2 || "غير مرصود",
-                        "بنائي 3": s.exams?.formative_3 || "غير مرصود",
-                        "بنائي 4": s.exams?.formative_4 || "غير مرصود",
-                        "النهائي": s.exams?.final_exam || "غير مرصود",
-                        "حالة القيد": s.active ? "مستمر" : "منقطع"
-                    };
+                    data.push([
+                        idx + 1,
+                        s.name,
+                        s.group,
+                        s.phone,
+                        abs,
+                        absCat === 'danger' ? 'خطر (أحمر)' : absCat === 'warning' ? 'تحذير (أصفر)' : 'طبيعي',
+                        absenceDates || (abs > 0 ? "غيابات يدوية سابقة" : "لا يوجد"),
+                        hw,
+                        hwAlert.text,
+                        s.pledges || 0,
+                        s.active ? "مستمر" : "منقطع"
+                    ]);
                 });
 
-                const ws = XLSX.utils.json_to_sheet(exportData);
+                const ws = XLSX.utils.aoa_to_sheet(data);
+
+                // تطبيق التنسيقات والألوان
+                data.forEach((row, rIdx) => {
+                    row.forEach((_, cIdx) => {
+                        const cellRef = XLSX.utils.encode_cell({ r: rIdx, c: cIdx });
+                        if (!ws[cellRef]) return;
+
+                        if (rIdx === 0) {
+                            ws[cellRef].s = STYLES.header;
+                        } else {
+                            ws[cellRef].s = { ...STYLES.normalCell };
+                            
+                            // تلوين عمود حالة الغياب (العمود 5)
+                            if (cIdx === 5) {
+                                const val = String(row[cIdx]);
+                                if (val.includes('خطر')) ws[cellRef].s = STYLES.redCell;
+                                else if (val.includes('تحذير')) ws[cellRef].s = STYLES.yellowCell;
+                                else ws[cellRef].s = STYLES.greenCell;
+                            }
+
+                            // تلوين عمود تنبيه الواجبات (العمود 8)
+                            if (cIdx === 8) {
+                                const val = String(row[cIdx]);
+                                if (val.includes('تجاوز') || val.includes('النهائي')) ws[cellRef].s = STYLES.redCell;
+                                else if (val.includes('الثاني')) ws[cellRef].s = STYLES.orangeCell;
+                                else if (val.includes('الأول')) ws[cellRef].s = STYLES.yellowCell;
+                                else ws[cellRef].s = STYLES.greenCell;
+                            }
+
+                            // تلوين حالة القيد (العمود 10)
+                            if (cIdx === 10) {
+                                ws[cellRef].s = row[cIdx] === 'مستمر' ? STYLES.greenCell : STYLES.normalCell;
+                            }
+                        }
+                    });
+                });
+
+                ws['!cols'] = [{ wch: 5 }, { wch: 24 }, { wch: 14 }, { wch: 15 }, { wch: 14 }, { wch: 15 }, { wch: 32 }, { wch: 18 }, { wch: 20 }, { wch: 10 }, { wch: 12 }];
+
                 const wb = XLSX.utils.book_new();
                 XLSX.utils.book_append_sheet(wb, ws, "التقرير الشامل");
-                
-                const fileName = `تقرير_الطلاب_${filterGroup === 'ALL' ? 'الكل' : filterGroup}_${getTodayDateStr()}.xlsx`;
-                XLSX.writeFile(wb, fileName);
-                showToast("تم تصدير التقرير الشامل متضمناً نتائج الاختبارات بنجاح");
+                XLSX.writeFile(wb, `التقرير_الشامل_${filterGroup === 'ALL' ? 'الكل' : filterGroup}_${getTodayDateStr()}.xlsx`);
+                showToast("تم تصدير التقرير الشامل الملون بنجاح");
+            };
+
+            // 2. تصدير نتائج الاختبارات والدرجات مع التلوين الاحترافي
+            const exportExamsToExcel = () => {
+                if (examFilteredStudents.length === 0) {
+                    showToast("لا توجد بيانات طلاب لتصديرها", "error");
+                    return;
+                }
+
+                const headers = ["م", "اسم الطالب", "الحلقة / الفصل", "رقم الجوال", "البنائي 1", "البنائي 2", "البنائي 3", "البنائي 4", "الاختبار النهائي"];
+                const data = [headers];
+
+                examFilteredStudents.forEach((s, idx) => {
+                    data.push([
+                        idx + 1,
+                        s.name,
+                        s.group,
+                        s.phone,
+                        s.exams?.formative_1 || "غير مرصود",
+                        s.exams?.formative_2 || "غير مرصود",
+                        s.exams?.formative_3 || "غير مرصود",
+                        s.exams?.formative_4 || "غير مرصود",
+                        s.exams?.final_exam || "غير مرصود"
+                    ]);
+                });
+
+                const ws = XLSX.utils.aoa_to_sheet(data);
+
+                // تطبيق التنسيقات والألوان للأعمدة
+                data.forEach((row, rIdx) => {
+                    row.forEach((_, cIdx) => {
+                        const cellRef = XLSX.utils.encode_cell({ r: rIdx, c: cIdx });
+                        if (!ws[cellRef]) return;
+
+                        if (rIdx === 0) {
+                            ws[cellRef].s = STYLES.header;
+                        } else {
+                            ws[cellRef].s = { ...STYLES.normalCell };
+                            
+                            // تلوين خلايا الاختبارات (الأعمدة من 4 إلى 8)
+                            if (cIdx >= 4 && cIdx <= 8) {
+                                const val = String(row[cIdx]).trim();
+                                if (val === 'متمكن' || val === 'مجتاز') {
+                                    ws[cellRef].s = STYLES.greenCell;
+                                } else if (val === 'ضعيف') {
+                                    ws[cellRef].s = STYLES.yellowCell;
+                                } else if (val === 'مخفق' || val === 'غير مجتاز') {
+                                    ws[cellRef].s = STYLES.redCell;
+                                }
+                            }
+                        }
+                    });
+                });
+
+                ws['!cols'] = [{ wch: 5 }, { wch: 25 }, { wch: 14 }, { wch: 15 }, { wch: 14 }, { wch: 14 }, { wch: 14 }, { wch: 14 }, { wch: 16 }];
+
+                const wb = XLSX.utils.book_new();
+                XLSX.utils.book_append_sheet(wb, ws, "نتائج الاختبارات");
+                XLSX.writeFile(wb, `تقرير_الاختبارات_${examFilterGroup === 'ALL' ? 'الكل' : examFilterGroup}_${getTodayDateStr()}.xlsx`);
+                showToast("تم تصدير درجات الاختبارات الملونة بنجاح");
             };
 
             const handleAddManualStudent = async (e) => {
@@ -800,7 +935,6 @@
                 }).sort((a, b) => (a.name || '').localeCompare(b.name || '', 'ar'));
             }, [students, filterGroup, filterAbsence, filterHomework, search]);
 
-            // الطلاب المخصصين لتبويب الاختبارات
             const examFilteredStudents = useMemo(() => {
                 return students.filter(s => {
                     return (examFilterGroup === 'ALL' || String(s.group).trim() === examFilterGroup) && s.active;
@@ -1208,7 +1342,7 @@
                                                     <input type="file" ref={fileInputRef} accept=".xlsx,.xls,.csv" onChange={handleExcelFileSelect} className="hidden" />
                                                 </label>
                                                 <button onClick={exportAbsencesToExcel} className="bg-emerald-600 hover:bg-emerald-700 text-white px-4 py-2 rounded-xl text-xs font-bold shadow-sm transition-all flex items-center gap-1">
-                                                    <span>📥 تصدير تقرير شامل Excel (مع التواريخ)</span>
+                                                    <span>📥 تصدير التقرير الشامل الملون Excel</span>
                                                 </button>
                                             </div>
                                             <input 
@@ -1341,7 +1475,7 @@
                                     </div>
                                 )}
 
-                                {/* تبويب الاختبارات والتقييمات */}
+                                {/* تبويب الاختبارات والتقييمات مع تصدير ملف الإكسل الملون */}
                                 {view === 'exams' && (
                                     <div className="space-y-6">
                                         <div className="bg-white p-5 rounded-3xl border border-slate-100 shadow-sm flex flex-wrap justify-between items-center gap-4">
@@ -1350,7 +1484,11 @@
                                                 <p className="text-xs text-slate-400 mt-1">4 اختبارات بنائية (متمكن، ضعيف، مخفق) واختبار نهائي (مجتاز، غير مجتاز)</p>
                                             </div>
                                             
-                                            <div className="flex flex-wrap gap-2">
+                                            <div className="flex flex-wrap gap-2 items-center">
+                                                <button onClick={exportExamsToExcel} className="bg-emerald-600 hover:bg-emerald-700 text-white px-4 py-2 rounded-xl text-xs font-bold shadow-sm transition-all flex items-center gap-1">
+                                                    <span>📥 تصدير تقرير الاختبارات والدرجات Excel</span>
+                                                </button>
+
                                                 <select 
                                                     value={selectedExamType} 
                                                     onChange={e => setSelectedExamType(e.target.value)}
@@ -1396,7 +1534,6 @@
                                                             const isFinal = selectedExamType === 'final_exam';
                                                             const examTitle = EXAM_TYPES.find(x => x.id === selectedExamType)?.title;
 
-                                                            // توليد رسالة الواتساب المخصصة للاختبار
                                                             let whatsappMsg = '';
                                                             if (isFinal) {
                                                                 whatsappMsg = settings.final_exam_template
@@ -1684,7 +1821,7 @@
                                         </div>
                                         <div>
                                             <label className="block text-sm font-bold mb-2">قالب رسالة عدم تسليم الواجب (تنبيهات الواجبات)</label>
-                                            <textarea className="w-full p-4 bg-slate-50 border rounded-2xl h-24 text-sm outline-none" value={settings.homework_template} onChange={e => setSettings({...settings, homework_template: e.target.value})} />
+                                            <textarea className="w-full p-4 bg-slate-50 border rounded-2xl h-28 text-sm outline-none" value={settings.homework_template} onChange={e => setSettings({...settings, homework_template: e.target.value})} />
                                         </div>
                                         <div>
                                             <label className="block text-sm font-bold mb-2">قالب رسالة نتيجة الاختبار البنائي</label>
