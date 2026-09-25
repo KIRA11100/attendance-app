@@ -134,12 +134,12 @@
         };
 
         const App = () => {
-            const [role, setRole] = useState(null); // 'supervisor' | 'monitor' | 'teacher'
+            const [role, setRole] = useState(null);
             const [currentTeacher, setCurrentTeacher] = useState(null);
             const [view, setView] = useState('inbox');
             const [inboxSubTab, setInboxSubTab] = useState('attendance');
             const [pin, setPin] = useState('');
-            const [showPin, setShowPin] = useState(false); // حالة إظهار/إخفاء كلمة المرور
+            const [showPin, setShowPin] = useState(false);
             
             const [students, setStudents] = useState([]);
             const [teachers, setTeachers] = useState([]);
@@ -489,7 +489,6 @@
                 }
             };
 
-            // حفظ درجة وملاحظات اختبار الطالب
             const handleUpdateStudentExam = async (studentId, examKey, grade) => {
                 try {
                     await db.collection('students').doc(studentId).update({
@@ -731,7 +730,6 @@
                 }
             };
 
-            // تصدير التقرير الشامل
             const exportAbsencesToExcel = () => {
                 if (filteredStudents.length === 0) {
                     showToast("لا توجد بيانات طلاب لتصديرها", "error");
@@ -807,7 +805,6 @@
                 showToast("تم تصدير التقرير الشامل الملون بنجاح");
             };
 
-            // تصدير نتائج الاختبارات والملاحظات إلى Excel
             const exportExamsToExcel = (targetStudents, groupLabel) => {
                 if (!targetStudents || targetStudents.length === 0) {
                     showToast("لا توجد بيانات طلاب لتصديرها", "error");
@@ -845,7 +842,6 @@
 
                 const ws = XLSX.utils.aoa_to_sheet(data);
 
-                // تطبيق التنسيقات والألوان للأعمدة
                 data.forEach((row, rIdx) => {
                     row.forEach((_, cIdx) => {
                         const cellRef = XLSX.utils.encode_cell({ r: rIdx, c: cIdx });
@@ -855,7 +851,6 @@
                             ws[cellRef].s = STYLES.header;
                         } else {
                             ws[cellRef].s = { ...STYLES.normalCell };
-                            // تلوين خانات الدرجات (الأعمدة الزوجية: 4, 6, 8, 10, 12)
                             if ([4, 6, 8, 10, 12].includes(cIdx)) {
                                 const val = String(row[cIdx]).trim();
                                 if (val === 'متمكن' || val === 'مجتاز') ws[cellRef].s = STYLES.greenCell;
@@ -868,11 +863,11 @@
 
                 ws['!cols'] = [
                     { wch: 5 }, { wch: 25 }, { wch: 14 }, { wch: 15 }, 
-                    { wch: 14 }, { wch: 24 }, 
-                    { wch: 14 }, { wch: 24 }, 
-                    { wch: 14 }, { wch: 24 }, 
-                    { wch: 14 }, { wch: 24 }, 
-                    { wch: 16 }, { wch: 24 }
+                    { wch: 14 }, { wch: 28 }, 
+                    { wch: 14 }, { wch: 28 }, 
+                    { wch: 14 }, { wch: 28 }, 
+                    { wch: 14 }, { wch: 28 }, 
+                    { wch: 16 }, { wch: 28 }
                 ];
 
                 const wb = XLSX.utils.book_new();
@@ -1005,7 +1000,6 @@
                         <p className="text-slate-400 text-sm">تسجيل الدخول للمشرف، المسجل، والمعلمين</p>
                         
                         <div className="space-y-4">
-                            {/* حقل إدخال الـ PIN مع زر الإظهار والإخفاء */}
                             <div className="relative">
                                 <input 
                                     type={showPin ? "text" : "password"} 
@@ -1018,10 +1012,10 @@
                                 <button
                                     type="button"
                                     onClick={() => setShowPin(!showPin)}
-                                    className="absolute left-4 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-700 text-xl focus:outline-none"
+                                    className="absolute left-4 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-700 text-xl focus:outline-none transition-all"
                                     title={showPin ? "إخفاء الرمز" : "إظهار الرمز"}
                                 >
-                                    {showPin ? "👁️" : "🙈"}
+                                    {showPin ? "👁️" : "🔒"}
                                 </button>
                             </div>
 
@@ -1158,11 +1152,11 @@
                                                                 )}
                                                             </td>
                                                             <td className="p-4 text-center">
-                                                                <input 
-                                                                    type="text" 
+                                                                <textarea 
                                                                     defaultValue={currentNotes} 
                                                                     placeholder="اكتب ملاحظة حول أداء الطالب..." 
-                                                                    className="w-full max-w-xs p-2 text-xs bg-slate-50 border rounded-xl outline-none focus:border-blue-600"
+                                                                    rows="2"
+                                                                    className="w-full min-w-[200px] max-w-md p-2.5 text-xs bg-slate-50 border-2 border-slate-200 rounded-xl outline-none focus:border-blue-600 focus:bg-white transition-all resize-y shadow-inner"
                                                                     onBlur={(e) => handleUpdateStudentExamNotes(s.id, selectedExamType, e.target.value)}
                                                                 />
                                                             </td>
@@ -1684,12 +1678,16 @@
                                                         })}
                                                     </tbody>
                                                 </table>
+                                                {filteredStudents.length === 0 && (
+                                                    <div className="text-center py-12 text-slate-400 font-bold text-xs">
+                                                        لا يوجد طلاب يطابقون خيارات البحث والفلاتر المحددة
+                                                    </div>
+                                                )}
                                             </div>
                                         </div>
                                     </div>
                                 )}
 
-                                {/* تبويب الاختبارات والتقييمات مع إمكانية إضافة الملاحظات */}
                                 {view === 'exams' && (
                                     <div className="space-y-6">
                                         <div className="bg-white p-5 rounded-3xl border border-slate-100 shadow-sm flex flex-wrap justify-between items-center gap-4">
@@ -1811,11 +1809,11 @@
                                                                         )}
                                                                     </td>
                                                                     <td className="p-4 text-center">
-                                                                        <input 
-                                                                            type="text" 
+                                                                        <textarea 
                                                                             defaultValue={currentNotes} 
                                                                             placeholder="اكتب ملاحظة حول أداء الطالب..." 
-                                                                            className="w-full max-w-xs p-2 text-xs bg-slate-50 border rounded-xl outline-none focus:border-blue-600"
+                                                                            rows="2"
+                                                                            className="w-full min-w-[200px] max-w-md p-2.5 text-xs bg-slate-50 border-2 border-slate-200 rounded-xl outline-none focus:border-blue-600 focus:bg-white transition-all resize-y shadow-inner"
                                                                             onBlur={(e) => handleUpdateStudentExamNotes(s.id, selectedExamType, e.target.value)}
                                                                         />
                                                                     </td>
