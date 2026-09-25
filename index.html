@@ -135,10 +135,12 @@
 
         const App = () => {
             const [role, setRole] = useState(null); // 'supervisor' | 'monitor' | 'teacher'
-            const [currentTeacher, setCurrentTeacher] = useState(null); // بيانات المعلم المسجل حالياً
+            const [currentTeacher, setCurrentTeacher] = useState(null);
             const [view, setView] = useState('inbox');
             const [inboxSubTab, setInboxSubTab] = useState('attendance');
             const [pin, setPin] = useState('');
+            const [showPin, setShowPin] = useState(false); // حالة إظهار/إخفاء كلمة المرور
+            
             const [students, setStudents] = useState([]);
             const [teachers, setTeachers] = useState([]);
             const [logs, setLogs] = useState([]);
@@ -150,8 +152,8 @@
                 absence_template: "عزيزي ولي أمر الطالب {student_name}، نفيدكم بغيابه اليوم {date}. إجمالي غياباته: {absence_count}",
                 excused_template: "عزيزي ولي أمر الطالب {student_name}، تم تسجيل استئذان الطالب اليوم {date} بعذر مقبول.",
                 homework_template: "عزيزي ولي أمر الطالب {student_name}، نود إشعاركم بعدم تسليمه لواجب اليوم {date}. إجمالي مرات عدم التسليم: {missed_count} واجبات ({alert_status}). نأمل متابعته حرصاً على مستواه.",
-                formative_exam_template: "السلام عليكم ورحمة الله وبركاته، نفيدكم بنتيجة الطالب {student_name} في ({exam_name}): تقدير الطالب هو [{grade}]. نسأل الله له دوام التوفيق والتميز.",
-                final_exam_template: "السلام عليكم ورحمة الله وبركاته، نبارك لكم نتائج نهاية الفصل. نفيدكم بأن الطالب {student_name} في (الاختبار النهائي) قد حصل على نتيجة: [{grade}]. سائلين المولى له التوفيق."
+                formative_exam_template: "السلام عليكم ورحمة الله وبركاته، نفيدكم بنتيجة الطالب {student_name} في ({exam_name}): تقدير الطالب هو [{grade}]. ملاحظة المعلم: {notes}. نسأل الله له دوام التوفيق والتميز.",
+                final_exam_template: "السلام عليكم ورحمة الله وبركاته، نبارك لكم نتائج نهاية الفصل. نفيدكم بأن الطالب {student_name} في (الاختبار النهائي) قد حصل على نتيجة: [{grade}]. ملاحظة المعلم: {notes}. سائلين المولى له التوفيق."
             });
             const [toast, setToast] = useState(null);
 
@@ -197,6 +199,7 @@
                         missedHomework: 0, 
                         absences: 0, 
                         exams: {}, 
+                        examNotes: {}, 
                         ...doc.data() 
                     })));
                 }, () => showToast("يرجى التأكد من تفعيل Firestore Database", "error"));
@@ -260,7 +263,6 @@
                 return [...teachers].sort((a, b) => (a.name || '').localeCompare(b.name || '', 'ar'));
             }, [teachers]);
 
-            // التحقق من تسجيل الدخول (مشرف، مسجل، أو معلم خاص برقم PIN)
             const handleLogin = () => {
                 const trimmedPin = pin.trim();
                 if (trimmedPin === '1234') {
@@ -272,7 +274,6 @@
                     setCurrentTeacher(null);
                     setToast(null);
                 } else {
-                    // فحص إذا كان الرمز يتبع أحد المعلمين
                     const matchedTeacher = teachers.find(t => t.pin && String(t.pin).trim() === trimmedPin);
                     if (matchedTeacher) {
                         setRole('teacher');
@@ -283,12 +284,14 @@
                     }
                 }
                 setPin('');
+                setShowPin(false);
             };
 
             const logout = () => {
                 setRole(null);
                 setCurrentTeacher(null);
                 setPin('');
+                setShowPin(false);
                 setActiveMonitorGroup(null);
                 setIsMonitoringTeachers(false);
                 setAttendanceBatch({});
@@ -486,6 +489,7 @@
                 }
             };
 
+            // حفظ درجة وملاحظات اختبار الطالب
             const handleUpdateStudentExam = async (studentId, examKey, grade) => {
                 try {
                     await db.collection('students').doc(studentId).update({
@@ -494,6 +498,16 @@
                     showToast("تم تسجيل درجة الاختبار بنجاح");
                 } catch (err) {
                     showToast("تعذر حفظ درجة الاختبار", "error");
+                }
+            };
+
+            const handleUpdateStudentExamNotes = async (studentId, examKey, notes) => {
+                try {
+                    await db.collection('students').doc(studentId).update({
+                        [`examNotes.${examKey}`]: notes
+                    });
+                } catch (err) {
+                    console.error("تعذر حفظ الملاحظة", err);
                 }
             };
 
@@ -682,6 +696,7 @@
                                 missedHomework: parseInt(clean['واجبات'] || clean['عدم تسليم الواجبات'] || 0) || 0,
                                 pledges: parseInt(clean['تعهدات'] || 0) || 0,
                                 exams: {},
+                                examNotes: {},
                                 active: isActive
                             };
                         }).filter(s => s.name && s.name.length > 1);
@@ -716,6 +731,7 @@
                 }
             };
 
+            // تصدير التقرير الشامل
             const exportAbsencesToExcel = () => {
                 if (filteredStudents.length === 0) {
                     showToast("لا توجد بيانات طلاب لتصديرها", "error");
@@ -788,16 +804,24 @@
                 const wb = XLSX.utils.book_new();
                 XLSX.utils.book_append_sheet(wb, ws, "التقرير الشامل");
                 XLSX.writeFile(wb, `التقرير_الشامل_${filterGroup === 'ALL' ? 'الكل' : filterGroup}_${getTodayDateStr()}.xlsx`);
-                showToast("تم تصدير التتقرير الشامل الملون بنجاح");
+                showToast("تم تصدير التقرير الشامل الملون بنجاح");
             };
 
+            // تصدير نتائج الاختبارات والملاحظات إلى Excel
             const exportExamsToExcel = (targetStudents, groupLabel) => {
                 if (!targetStudents || targetStudents.length === 0) {
                     showToast("لا توجد بيانات طلاب لتصديرها", "error");
                     return;
                 }
 
-                const headers = ["م", "اسم الطالب", "الحلقة / الفصل", "رقم الجوال", "البنائي 1", "البنائي 2", "البنائي 3", "البنائي 4", "الاختبار النهائي"];
+                const headers = [
+                    "م", "اسم الطالب", "الحلقة / الفصل", "رقم الجوال", 
+                    "البنائي 1", "ملاحظة البنائي 1",
+                    "البنائي 2", "ملاحظة البنائي 2",
+                    "البنائي 3", "ملاحظة البنائي 3",
+                    "البنائي 4", "ملاحظة البنائي 4",
+                    "الاختبار النهائي", "ملاحظة النهائي"
+                ];
                 const data = [headers];
 
                 targetStudents.forEach((s, idx) => {
@@ -807,15 +831,21 @@
                         s.group,
                         s.phone,
                         s.exams?.formative_1 || "غير مرصود",
+                        s.examNotes?.formative_1 || "-",
                         s.exams?.formative_2 || "غير مرصود",
+                        s.examNotes?.formative_2 || "-",
                         s.exams?.formative_3 || "غير مرصود",
+                        s.examNotes?.formative_3 || "-",
                         s.exams?.formative_4 || "غير مرصود",
-                        s.exams?.final_exam || "غير مرصود"
+                        s.examNotes?.formative_4 || "-",
+                        s.exams?.final_exam || "غير مرصود",
+                        s.examNotes?.final_exam || "-"
                     ]);
                 });
 
                 const ws = XLSX.utils.aoa_to_sheet(data);
 
+                // تطبيق التنسيقات والألوان للأعمدة
                 data.forEach((row, rIdx) => {
                     row.forEach((_, cIdx) => {
                         const cellRef = XLSX.utils.encode_cell({ r: rIdx, c: cIdx });
@@ -825,7 +855,8 @@
                             ws[cellRef].s = STYLES.header;
                         } else {
                             ws[cellRef].s = { ...STYLES.normalCell };
-                            if (cIdx >= 4 && cIdx <= 8) {
+                            // تلوين خانات الدرجات (الأعمدة الزوجية: 4, 6, 8, 10, 12)
+                            if ([4, 6, 8, 10, 12].includes(cIdx)) {
                                 const val = String(row[cIdx]).trim();
                                 if (val === 'متمكن' || val === 'مجتاز') ws[cellRef].s = STYLES.greenCell;
                                 else if (val === 'ضعيف') ws[cellRef].s = STYLES.yellowCell;
@@ -835,12 +866,19 @@
                     });
                 });
 
-                ws['!cols'] = [{ wch: 5 }, { wch: 25 }, { wch: 14 }, { wch: 15 }, { wch: 14 }, { wch: 14 }, { wch: 14 }, { wch: 14 }, { wch: 16 }];
+                ws['!cols'] = [
+                    { wch: 5 }, { wch: 25 }, { wch: 14 }, { wch: 15 }, 
+                    { wch: 14 }, { wch: 24 }, 
+                    { wch: 14 }, { wch: 24 }, 
+                    { wch: 14 }, { wch: 24 }, 
+                    { wch: 14 }, { wch: 24 }, 
+                    { wch: 16 }, { wch: 24 }
+                ];
 
                 const wb = XLSX.utils.book_new();
                 XLSX.utils.book_append_sheet(wb, ws, "نتائج الاختبارات");
-                XLSX.writeFile(wb, `تقرير_الاختبارات_${groupLabel}_${getTodayDateStr()}.xlsx`);
-                showToast("تم تصدير درجات الاختبارات الملونة بنجاح");
+                XLSX.writeFile(wb, `تقرير_الاختبارات_بالملاحظات_${groupLabel}_${getTodayDateStr()}.xlsx`);
+                showToast("تم تصدير درجات الاختبارات والملاحظات بنجاح");
             };
 
             const handleAddManualStudent = async (e) => {
@@ -856,6 +894,7 @@
                         missedHomework: 0,
                         pledges: 0,
                         exams: {},
+                        examNotes: {},
                         active: newStudent.active
                     });
                     setNewStudent({ name: '', phone: '', group: '', active: true, pledges: 0, missedHomework: 0 });
@@ -950,7 +989,6 @@
                 }).sort((a, b) => (a.name || '').localeCompare(b.name || '', 'ar'));
             }, [students, examFilterGroup]);
 
-            // طلاب المعلم الحالي فقط
             const teacherStudents = useMemo(() => {
                 if (!currentTeacher) return [];
                 const teacherGroup = String(currentTeacher.subject || '').trim();
@@ -965,15 +1003,28 @@
                         <div className="w-16 h-16 bg-blue-600 text-white text-3xl font-bold rounded-2xl flex items-center justify-center mx-auto mb-4 shadow-lg">✓</div>
                         <h1 className="text-2xl font-extrabold text-slate-800">منصة إتقان السحابية</h1>
                         <p className="text-slate-400 text-sm">تسجيل الدخول للمشرف، المسجل، والمعلمين</p>
+                        
                         <div className="space-y-4">
-                            <input 
-                                type="password" 
-                                placeholder="أدخل رمز الدخول الخاص بك (PIN)" 
-                                className="w-full p-4 bg-slate-50 border-2 border-slate-200 rounded-2xl text-center text-2xl tracking-widest outline-none focus:border-blue-600 transition-all"
-                                value={pin}
-                                onChange={e => setPin(e.target.value)}
-                                onKeyDown={e => e.key === 'Enter' && handleLogin()}
-                            />
+                            {/* حقل إدخال الـ PIN مع زر الإظهار والإخفاء */}
+                            <div className="relative">
+                                <input 
+                                    type={showPin ? "text" : "password"} 
+                                    placeholder="أدخل رمز الدخول الخاص بك (PIN)" 
+                                    className="w-full p-4 pl-12 bg-slate-50 border-2 border-slate-200 rounded-2xl text-center text-2xl tracking-widest outline-none focus:border-blue-600 transition-all font-mono"
+                                    value={pin}
+                                    onChange={e => setPin(e.target.value)}
+                                    onKeyDown={e => e.key === 'Enter' && handleLogin()}
+                                />
+                                <button
+                                    type="button"
+                                    onClick={() => setShowPin(!showPin)}
+                                    className="absolute left-4 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-700 text-xl focus:outline-none"
+                                    title={showPin ? "إخفاء الرمز" : "إظهار الرمز"}
+                                >
+                                    {showPin ? "👁️" : "🙈"}
+                                </button>
+                            </div>
+
                             <button onClick={handleLogin} className="w-full bg-blue-600 hover:bg-blue-700 text-white p-4 rounded-2xl font-bold text-lg shadow-lg transition-all">
                                 تسجيل الدخول
                             </button>
@@ -1004,19 +1055,18 @@
                                             <span className="bg-indigo-100 text-indigo-800 text-xs px-3 py-1 rounded-xl font-bold">الحلقة: {currentTeacher.subject}</span>
                                             <h2 className="text-xl font-extrabold text-slate-800">مرحباً بالأستاذ: {currentTeacher.name}</h2>
                                         </div>
-                                        <p className="text-xs text-slate-400 mt-1">يمكنك رصد درجات الاختبارات أو التحضير لطلاب حلقتك مباشرة</p>
+                                        <p className="text-xs text-slate-400 mt-1">يمكنك رصد درجات الاختبارات وكتابة الملاحظات لطلاب حلقتك</p>
                                     </div>
                                     <div className="flex gap-2">
                                         <button 
                                             onClick={() => exportExamsToExcel(teacherStudents, currentTeacher.subject)}
                                             className="bg-emerald-600 hover:bg-emerald-700 text-white px-4 py-2 rounded-xl text-xs font-bold shadow-sm transition-all flex items-center gap-1"
                                         >
-                                            📥 تصدير درجات حلقتي Excel
+                                            📥 تصدير درجات وملاحظات حلقتي Excel
                                         </button>
                                     </div>
                                 </div>
 
-                                {/* اختيار نوع الاختبار للمعلم */}
                                 <div className="bg-white rounded-3xl border border-slate-100 shadow-sm overflow-hidden p-5 space-y-4">
                                     <div className="flex flex-wrap justify-between items-center gap-3 border-b pb-4">
                                         <div className="flex items-center gap-2">
@@ -1040,18 +1090,27 @@
                                                 <tr>
                                                     <th className="p-4 font-bold">اسم الطالب</th>
                                                     <th className="p-4 font-bold text-center">الدرجة / التقدير</th>
+                                                    <th className="p-4 font-bold text-center">ملاحظات المعلم (تظهر بالإكسل)</th>
                                                     <th className="p-4 font-bold text-center">إشعار ولي الأمر</th>
                                                 </tr>
                                             </thead>
                                             <tbody className="divide-y divide-slate-100">
                                                 {teacherStudents.map(s => {
                                                     const currentGrade = s.exams?.[selectedExamType] || '';
+                                                    const currentNotes = s.examNotes?.[selectedExamType] || '';
                                                     const isFinal = selectedExamType === 'final_exam';
                                                     const examTitle = EXAM_TYPES.find(x => x.id === selectedExamType)?.title;
 
                                                     let whatsappMsg = isFinal
-                                                        ? settings.final_exam_template.replace(/{student_name}/g, s.name).replace(/{grade}/g, currentGrade || 'لم تحدد بعد')
-                                                        : settings.formative_exam_template.replace(/{student_name}/g, s.name).replace(/{exam_name}/g, examTitle).replace(/{grade}/g, currentGrade || 'لم تحدد بعد');
+                                                        ? settings.final_exam_template
+                                                            .replace(/{student_name}/g, s.name)
+                                                            .replace(/{grade}/g, currentGrade || 'لم تحدد بعد')
+                                                            .replace(/{notes}/g, currentNotes || 'لا توجد ملاحظات')
+                                                        : settings.formative_exam_template
+                                                            .replace(/{student_name}/g, s.name)
+                                                            .replace(/{exam_name}/g, examTitle)
+                                                            .replace(/{grade}/g, currentGrade || 'لم تحدد بعد')
+                                                            .replace(/{notes}/g, currentNotes || 'لا توجد ملاحظات');
 
                                                     return (
                                                         <tr key={s.id} className="hover:bg-slate-50">
@@ -1097,6 +1156,15 @@
                                                                         </button>
                                                                     </div>
                                                                 )}
+                                                            </td>
+                                                            <td className="p-4 text-center">
+                                                                <input 
+                                                                    type="text" 
+                                                                    defaultValue={currentNotes} 
+                                                                    placeholder="اكتب ملاحظة حول أداء الطالب..." 
+                                                                    className="w-full max-w-xs p-2 text-xs bg-slate-50 border rounded-xl outline-none focus:border-blue-600"
+                                                                    onBlur={(e) => handleUpdateStudentExamNotes(s.id, selectedExamType, e.target.value)}
+                                                                />
                                                             </td>
                                                             <td className="p-4 text-center">
                                                                 {currentGrade ? (
@@ -1616,22 +1684,18 @@
                                                         })}
                                                     </tbody>
                                                 </table>
-                                                {filteredStudents.length === 0 && (
-                                                    <div className="text-center py-12 text-slate-400 font-bold text-xs">
-                                                        لا يوجد طلاب يطابقون خيارات البحث والفلاتر المحددة
-                                                    </div>
-                                                )}
                                             </div>
                                         </div>
                                     </div>
                                 )}
 
+                                {/* تبويب الاختبارات والتقييمات مع إمكانية إضافة الملاحظات */}
                                 {view === 'exams' && (
                                     <div className="space-y-6">
                                         <div className="bg-white p-5 rounded-3xl border border-slate-100 shadow-sm flex flex-wrap justify-between items-center gap-4">
                                             <div>
-                                                <h3 className="font-bold text-slate-800 text-lg">بوابة رصد وإرسال نتائج الاختبارات</h3>
-                                                <p className="text-xs text-slate-400 mt-1">4 اختبارات بنائية (متمكن، ضعيف، مخفق) واختبار نهائي (مجتاز، غير مجتاز)</p>
+                                                <h3 className="font-bold text-slate-800 text-lg">بوابة رصد وإرسال نتائج الاختبارات والملاحظات</h3>
+                                                <p className="text-xs text-slate-400 mt-1">رصد الدرجات وكتابة ملاحظات تفصيلية لكل طالب يتم تصديرها بملف الـ Excel</p>
                                             </div>
                                             
                                             <div className="flex flex-wrap gap-2 items-center">
@@ -1639,7 +1703,7 @@
                                                     onClick={() => exportExamsToExcel(examFilteredStudents, examFilterGroup === 'ALL' ? 'الكل' : examFilterGroup)}
                                                     className="bg-emerald-600 hover:bg-emerald-700 text-white px-4 py-2 rounded-xl text-xs font-bold shadow-sm transition-all flex items-center gap-1"
                                                 >
-                                                    <span>📥 تصدير تقرير الاختبارات والدرجات Excel</span>
+                                                    <span>📥 تصدير الدرجات والملاحظات Excel</span>
                                                 </button>
 
                                                 <select 
@@ -1678,18 +1742,27 @@
                                                             <th className="p-4 font-bold">اسم الطالب</th>
                                                             <th className="p-4 font-bold">الحلقة</th>
                                                             <th className="p-4 font-bold text-center">الدرجة / التقدير</th>
+                                                            <th className="p-4 font-bold text-center">ملاحظات المعلم (تظهر بالإكسل)</th>
                                                             <th className="p-4 font-bold text-center">إشعار ولي الأمر</th>
                                                         </tr>
                                                     </thead>
                                                     <tbody className="divide-y divide-slate-100">
                                                         {examFilteredStudents.map(s => {
                                                             const currentGrade = s.exams?.[selectedExamType] || '';
+                                                            const currentNotes = s.examNotes?.[selectedExamType] || '';
                                                             const isFinal = selectedExamType === 'final_exam';
                                                             const examTitle = EXAM_TYPES.find(x => x.id === selectedExamType)?.title;
 
                                                             let whatsappMsg = isFinal
-                                                                ? settings.final_exam_template.replace(/{student_name}/g, s.name).replace(/{grade}/g, currentGrade || 'لم تحدد بعد')
-                                                                : settings.formative_exam_template.replace(/{student_name}/g, s.name).replace(/{exam_name}/g, examTitle).replace(/{grade}/g, currentGrade || 'لم تحدد بعد');
+                                                                ? settings.final_exam_template
+                                                                    .replace(/{student_name}/g, s.name)
+                                                                    .replace(/{grade}/g, currentGrade || 'لم تحدد بعد')
+                                                                    .replace(/{notes}/g, currentNotes || 'لا توجد ملاحظات')
+                                                                : settings.formative_exam_template
+                                                                    .replace(/{student_name}/g, s.name)
+                                                                    .replace(/{exam_name}/g, examTitle)
+                                                                    .replace(/{grade}/g, currentGrade || 'لم تحدد بعد')
+                                                                    .replace(/{notes}/g, currentNotes || 'لا توجد ملاحظات');
 
                                                             return (
                                                                 <tr key={s.id} className="hover:bg-slate-50">
@@ -1736,6 +1809,15 @@
                                                                                 </button>
                                                                             </div>
                                                                         )}
+                                                                    </td>
+                                                                    <td className="p-4 text-center">
+                                                                        <input 
+                                                                            type="text" 
+                                                                            defaultValue={currentNotes} 
+                                                                            placeholder="اكتب ملاحظة حول أداء الطالب..." 
+                                                                            className="w-full max-w-xs p-2 text-xs bg-slate-50 border rounded-xl outline-none focus:border-blue-600"
+                                                                            onBlur={(e) => handleUpdateStudentExamNotes(s.id, selectedExamType, e.target.value)}
+                                                                        />
                                                                     </td>
                                                                     <td className="p-4 text-center">
                                                                         {currentGrade ? (
@@ -1900,7 +1982,6 @@
                                     </div>
                                 )}
 
-                                {/* تبويب سجل وإدارة المعلمين (تخصيص الـ PIN وتعديله) */}
                                 {view === 'teachers' && (
                                     <div className="space-y-6">
                                         <div className="bg-white p-5 rounded-3xl border border-slate-100 shadow-sm flex flex-wrap justify-between items-center gap-4">
@@ -1990,7 +2071,6 @@
                         )}
                     </main>
 
-                    {/* نافذة تسجيل تعهد تأديبي */}
                     {showPledgeModal && (
                         <div className="fixed inset-0 z-50 flex items-center justify-center p-4 modal-overlay">
                             <form onSubmit={handleAddPledge} className="bg-white w-full max-w-md rounded-3xl p-6 space-y-4">
@@ -2017,7 +2097,6 @@
                         </div>
                     )}
 
-                    {/* نافذة إضافة معلم مع تحديد الـ PIN */}
                     {showAddTeacherModal && (
                         <div className="fixed inset-0 z-50 flex items-center justify-center p-4 modal-overlay">
                             <form onSubmit={handleAddTeacher} className="bg-white w-full max-w-md rounded-3xl p-6 space-y-4">
@@ -2037,7 +2116,6 @@
                         </div>
                     )}
 
-                    {/* نافذة إضافة طالب */}
                     {showAddModal && (
                         <div className="fixed inset-0 z-50 flex items-center justify-center p-4 modal-overlay">
                             <form onSubmit={handleAddManualStudent} className="bg-white w-full max-w-md rounded-3xl p-6 space-y-4">
@@ -2057,7 +2135,6 @@
                         </div>
                     )}
 
-                    {/* نافذة تعديل بيانات الطالب */}
                     {editingStudent && (
                         <div className="fixed inset-0 z-50 flex items-center justify-center p-4 modal-overlay">
                             <form onSubmit={handleSaveEdit} className="bg-white w-full max-w-md rounded-3xl p-6 space-y-4">
@@ -2094,7 +2171,6 @@
                         </div>
                     )}
 
-                    {/* نافذة استيراد Excel */}
                     {importPreview && (
                         <div className="fixed inset-0 z-50 flex items-center justify-center p-4 modal-overlay">
                             <div className="bg-white w-full max-w-lg rounded-3xl p-6 space-y-4 max-h-[85vh] flex flex-col">
