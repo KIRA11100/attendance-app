@@ -992,6 +992,39 @@
                     .sort((a, b) => (a.name || '').localeCompare(b.name || '', 'ar'));
             }, [students, currentTeacher]);
 
+            // احتساب نسبة ومعدل الاجتياز التفاعلي للفلتر المختار
+            const calculatePassStats = (targetList, examKey) => {
+                const total = targetList.length;
+                if (total === 0) return { total: 0, graded: 0, passed: 0, failed: 0, rate: 0 };
+                
+                const isFinal = examKey === 'final_exam';
+                let graded = 0;
+                let passed = 0;
+
+                targetList.forEach(s => {
+                    const g = s.exams?.[examKey];
+                    if (g) {
+                        graded++;
+                        if (isFinal) {
+                            if (g === 'مجتاز') passed++;
+                        } else {
+                            if (g === 'متمكن' || g === 'ضعيف') passed++;
+                        }
+                    }
+                });
+
+                const rate = graded > 0 ? Math.round((passed / graded) * 100) : 0;
+                return { total, graded, passed, failed: graded - passed, rate };
+            };
+
+            const supervisorExamStats = useMemo(() => {
+                return calculatePassStats(examFilteredStudents, selectedExamType);
+            }, [examFilteredStudents, selectedExamType]);
+
+            const teacherExamStats = useMemo(() => {
+                return calculatePassStats(teacherStudents, selectedExamType);
+            }, [teacherStudents, selectedExamType]);
+
             if (!role) return (
                 <div className="min-h-screen flex items-center justify-center p-4 bg-slate-900">
                     <div className="max-w-md w-full bg-white rounded-3xl shadow-2xl p-8 space-y-6 text-center">
@@ -1058,6 +1091,34 @@
                                         >
                                             📥 تصدير درجات وملاحظات حلقتي Excel
                                         </button>
+                                    </div>
+                                </div>
+
+                                {/* شريط نسبة الاجتياز للمعلم */}
+                                <div className="bg-gradient-to-br from-indigo-900 to-slate-900 text-white p-6 rounded-3xl shadow-xl flex flex-wrap justify-between items-center gap-6">
+                                    <div className="space-y-1">
+                                        <span className="text-xs text-indigo-200 font-bold block">مؤشر أداء الحلقة لـ ({EXAM_TYPES.find(x => x.id === selectedExamType)?.title})</span>
+                                        <h3 className="text-3xl font-extrabold flex items-center gap-3">
+                                            <span>نسبة الاجتياز:</span>
+                                            <span className={teacherExamStats.rate >= 80 ? "text-emerald-400" : teacherExamStats.rate >= 60 ? "text-amber-400" : "text-rose-400"}>
+                                                %{teacherExamStats.rate}
+                                            </span>
+                                        </h3>
+                                        <p className="text-xs text-slate-400">
+                                            تم اجتياز {teacherExamStats.passed} من أصل {teacherExamStats.graded} طالب تم رصدهم (إجمالي الحلقة: {teacherExamStats.total})
+                                        </p>
+                                    </div>
+                                    <div className="w-full md:w-64 bg-white/10 p-2 rounded-2xl border border-white/10 space-y-1.5">
+                                        <div className="flex justify-between text-xs font-bold text-slate-300">
+                                            <span>المعدل المئوي</span>
+                                            <span>%{teacherExamStats.rate}</span>
+                                        </div>
+                                        <div className="w-full bg-slate-800 h-3 rounded-full overflow-hidden">
+                                            <div 
+                                                className={`h-full transition-all duration-700 rounded-full ${teacherExamStats.rate >= 80 ? "bg-emerald-500" : teacherExamStats.rate >= 60 ? "bg-amber-500" : "bg-rose-500"}`}
+                                                style={{ width: `${teacherExamStats.rate}%` }}
+                                            ></div>
+                                        </div>
                                     </div>
                                 </div>
 
@@ -1178,11 +1239,6 @@
                                                 })}
                                             </tbody>
                                         </table>
-                                        {teacherStudents.length === 0 && (
-                                            <div className="text-center py-8 text-slate-400 text-xs">
-                                                لا يوجد طلاب مسجلون باسم هذه الحلقة حالياً ({currentTeacher.subject})
-                                            </div>
-                                        )}
                                     </div>
                                 </div>
                             </div>
@@ -1274,9 +1330,6 @@
                                                     </div>
                                                 );
                                             })}
-                                            {sortedTeachers.length === 0 && (
-                                                <div className="text-center py-8 text-slate-400 text-xs">لا يوجد معلمون مسجلون في النظام</div>
-                                            )}
                                         </div>
 
                                         {sortedTeachers.length > 0 && (
@@ -1678,16 +1731,12 @@
                                                         })}
                                                     </tbody>
                                                 </table>
-                                                {filteredStudents.length === 0 && (
-                                                    <div className="text-center py-12 text-slate-400 font-bold text-xs">
-                                                        لا يوجد طلاب يطابقون خيارات البحث والفلاتر المحددة
-                                                    </div>
-                                                )}
                                             </div>
                                         </div>
                                     </div>
                                 )}
 
+                                {/* تبويب الاختبارات والتقييمات مع مؤشر نسبة الاجتياز */}
                                 {view === 'exams' && (
                                     <div className="space-y-6">
                                         <div className="bg-white p-5 rounded-3xl border border-slate-100 shadow-sm flex flex-wrap justify-between items-center gap-4">
@@ -1722,6 +1771,44 @@
                                                     <option value="ALL">جميع الحلقات</option>
                                                     {groups.map(g => <option key={g} value={g}>{g}</option>)}
                                                 </select>
+                                            </div>
+                                        </div>
+
+                                        {/* شريط نسبة الاجتياز الديناميكي حسب الفلتر المختار */}
+                                        <div className="bg-gradient-to-br from-blue-950 via-slate-900 to-indigo-950 text-white p-6 rounded-3xl shadow-xl flex flex-wrap justify-between items-center gap-6 border border-slate-800">
+                                            <div className="space-y-1">
+                                                <div className="flex items-center gap-2">
+                                                    <span className="bg-blue-500/20 text-blue-300 text-xs px-2.5 py-0.5 rounded-lg font-bold">
+                                                        {examFilterGroup === 'ALL' ? 'جميع الحلقات' : `حلقة: ${examFilterGroup}`}
+                                                    </span>
+                                                    <span className="text-xs text-slate-400">({EXAM_TYPES.find(x => x.id === selectedExamType)?.title})</span>
+                                                </div>
+                                                <h3 className="text-3xl font-extrabold flex items-center gap-3">
+                                                    <span>نسبة اجتياز الاختبار:</span>
+                                                    <span className={supervisorExamStats.rate >= 80 ? "text-emerald-400" : supervisorExamStats.rate >= 60 ? "text-amber-400" : "text-rose-400"}>
+                                                        %{supervisorExamStats.rate}
+                                                    </span>
+                                                </h3>
+                                                <p className="text-xs text-slate-400">
+                                                    اجتاز {supervisorExamStats.passed} من أصل {supervisorExamStats.graded} طالب تم رصدهم (إجمالي الطلاب بالفلتر: {supervisorExamStats.total})
+                                                </p>
+                                            </div>
+
+                                            <div className="w-full md:w-72 bg-white/5 p-3 rounded-2xl border border-white/10 space-y-2">
+                                                <div className="flex justify-between text-xs font-bold text-slate-300">
+                                                    <span>المعدل التراكمي للاجتياز</span>
+                                                    <span className="text-emerald-400">%{supervisorExamStats.rate}</span>
+                                                </div>
+                                                <div className="w-full bg-slate-800 h-3 rounded-full overflow-hidden p-0.5 border border-white/10">
+                                                    <div 
+                                                        className={`h-full transition-all duration-700 rounded-full ${supervisorExamStats.rate >= 80 ? "bg-emerald-500" : supervisorExamStats.rate >= 60 ? "bg-amber-500" : "bg-rose-500"}`}
+                                                        style={{ width: `${supervisorExamStats.rate}%` }}
+                                                    ></div>
+                                                </div>
+                                                <div className="flex justify-between text-[11px] text-slate-400">
+                                                    <span>مخفق/غير مجتاز: {supervisorExamStats.failed}</span>
+                                                    <span>مجتاز: {supervisorExamStats.passed}</span>
+                                                </div>
                                             </div>
                                         </div>
 
