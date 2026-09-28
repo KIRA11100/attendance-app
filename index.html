@@ -134,8 +134,10 @@
         };
 
         const App = () => {
-            const [role, setRole] = useState(null);
+            const [role, setRole] = useState(null); // 'supervisor' | 'monitor' | 'teacher'
             const [currentTeacher, setCurrentTeacher] = useState(null);
+            const [teacherTab, setTeacherTab] = useState('attendance'); // 'attendance' | 'homework' | 'exams'
+            
             const [view, setView] = useState('inbox');
             const [inboxSubTab, setInboxSubTab] = useState('attendance');
             const [pin, setPin] = useState('');
@@ -254,6 +256,43 @@
                 setTeacherAttendanceBatch(map);
             }, [teachers, teacherLogs]);
 
+            // تهيئة حضور وواجبات حلقة المعلم لليوم
+            useEffect(() => {
+                if (role === 'teacher' && currentTeacher) {
+                    const today = getTodayDateStr();
+                    const teacherGroup = String(currentTeacher.subject || '').trim();
+                    const attLogId = `${teacherGroup.replace(/\s+/g, '_')}_${today}`;
+                    const hwLogId = `hw_${teacherGroup.replace(/\s+/g, '_')}_${today}`;
+
+                    const existingAtt = logs.find(l => l.id === attLogId);
+                    const existingHw = homeworkLogs.find(l => l.id === hwLogId);
+
+                    const attMap = {};
+                    const hwMap = {};
+                    const myStudents = students.filter(s => String(s.group).trim() === teacherGroup && s.active);
+
+                    myStudents.forEach(s => {
+                        if (existingAtt && existingAtt.records) {
+                            const r = existingAtt.records.find(rec => String(rec.studentId) === String(s.id));
+                            attMap[s.id] = r ? r.status : 'present';
+                        } else {
+                            attMap[s.id] = 'present';
+                        }
+
+                        if (existingHw && existingHw.records) {
+                            const r = existingHw.records.find(rec => String(rec.studentId) === String(s.id));
+                            hwMap[s.id] = r ? r.status : 'submitted';
+                        } else {
+                            hwMap[s.id] = 'submitted';
+                        }
+                    });
+
+                    setAttendanceBatch(attMap);
+                    setHomeworkBatch(hwMap);
+                    setActiveMonitorGroup(teacherGroup);
+                }
+            }, [role, currentTeacher, students, logs, homeworkLogs]);
+
             const groups = useMemo(() => {
                 const uniqueGroups = [...new Set(students.map(s => String(s.group).trim()))].filter(Boolean);
                 return uniqueGroups.sort((a, b) => a.localeCompare(b, 'ar'));
@@ -278,6 +317,7 @@
                     if (matchedTeacher) {
                         setRole('teacher');
                         setCurrentTeacher(matchedTeacher);
+                        setTeacherTab('attendance');
                         setToast(null);
                     } else {
                         showToast('رمز الدخول غير صحيح، يرجى المحاولة مرة أخرى', 'error');
@@ -336,8 +376,8 @@
                 setIsMonitoringTeachers(false);
             };
 
-            const submitAttendance = async () => {
-                const groupName = activeMonitorGroup;
+            const submitAttendance = async (groupToSubmit) => {
+                const groupName = groupToSubmit || activeMonitorGroup;
                 const today = getTodayDateStr();
                 const sessionId = `${groupName.replace(/\s+/g, '_')}_${today}`;
                 const existingLog = logs.find(l => l.id === sessionId);
@@ -377,20 +417,21 @@
                         id: sessionId,
                         group: groupName,
                         date: today,
+                        submittedBy: role === 'teacher' ? `المعلم: ${currentTeacher.name}` : 'المسجل العام',
                         timestamp: firebase.firestore.FieldValue.serverTimestamp(),
                         records: snapshotRecords
                     });
 
                     await batch.commit();
-                    showToast(existingLog ? "تم تحديث كشف الحضور بنجاح" : "تم اعتماد كشف الحضور سحابياً");
+                    showToast(existingLog ? "تم تعديل كشف الحضور بنجاح" : "تم اعتماد كشف الحضور وإرساله للإشراف بنجاح");
                     if (role === 'monitor') setActiveMonitorGroup(null);
                 } catch (err) {
                     showToast("حدث خطأ أثناء الحفظ", "error");
                 }
             };
 
-            const submitHomework = async () => {
-                const groupName = activeMonitorGroup;
+            const submitHomework = async (groupToSubmit) => {
+                const groupName = groupToSubmit || activeMonitorGroup;
                 const today = getTodayDateStr();
                 const sessionId = `hw_${groupName.replace(/\s+/g, '_')}_${today}`;
                 const existingLog = homeworkLogs.find(l => l.id === sessionId);
@@ -430,12 +471,13 @@
                         id: sessionId,
                         group: groupName,
                         date: today,
+                        submittedBy: role === 'teacher' ? `المعلم: ${currentTeacher.name}` : 'المسجل العام',
                         timestamp: firebase.firestore.FieldValue.serverTimestamp(),
                         records: snapshotRecords
                     });
 
                     await batch.commit();
-                    showToast(existingLog ? "تم تحديث كشف الواجبات" : "تم اعتماد كشف الواجبات سحابياً");
+                    showToast(existingLog ? "تم تحديث كشف الواجبات" : "تم اعتماد كشف الواجبات وإرساله للإشراف بنجاح");
                     if (role === 'monitor') setActiveMonitorGroup(null);
                 } catch (err) {
                     showToast("حدث خطأ أثناء حفظ الواجبات", "error");
@@ -992,7 +1034,6 @@
                     .sort((a, b) => (a.name || '').localeCompare(b.name || '', 'ar'));
             }, [students, currentTeacher]);
 
-            // احتساب نسبة ومعدل الاجتياز التفاعلي للفلتر المختار
             const calculatePassStats = (targetList, examKey) => {
                 const total = targetList.length;
                 if (total === 0) return { total: 0, graded: 0, passed: 0, failed: 0, rate: 0 };
@@ -1073,7 +1114,7 @@
                     </header>
 
                     <main className="p-4 md:p-6">
-                        {/* ======================= بوابة المعلم المستقلة ======================= */}
+                        {/* ======================= بوابة المعلم المستقلة (الرصد والدرجات لحلقته فقط) ======================= */}
                         {role === 'teacher' ? (
                             <div className="space-y-6">
                                 <div className="bg-white p-5 rounded-3xl border border-slate-100 shadow-sm flex flex-wrap justify-between items-center gap-4">
@@ -1082,168 +1123,240 @@
                                             <span className="bg-indigo-100 text-indigo-800 text-xs px-3 py-1 rounded-xl font-bold">الحلقة: {currentTeacher.subject}</span>
                                             <h2 className="text-xl font-extrabold text-slate-800">مرحباً بالأستاذ: {currentTeacher.name}</h2>
                                         </div>
-                                        <p className="text-xs text-slate-400 mt-1">يمكنك رصد درجات الاختبارات وكتابة الملاحظات لطلاب حلقتك</p>
+                                        <p className="text-xs text-slate-400 mt-1">قم برصد الحضور، الواجبات، والاختبارات لحلقتك، ويتم إرسالها للإدارة تلقائياً</p>
                                     </div>
                                     <div className="flex gap-2">
-                                        <button 
-                                            onClick={() => exportExamsToExcel(teacherStudents, currentTeacher.subject)}
-                                            className="bg-emerald-600 hover:bg-emerald-700 text-white px-4 py-2 rounded-xl text-xs font-bold shadow-sm transition-all flex items-center gap-1"
-                                        >
-                                            📥 تصدير درجات وملاحظات حلقتي Excel
-                                        </button>
+                                        <span className="bg-emerald-50 text-emerald-700 border border-emerald-200 px-3 py-1.5 rounded-xl text-xs font-bold flex items-center gap-1">
+                                            ✓ متصل بالسحابة
+                                        </span>
                                     </div>
                                 </div>
 
-                                {/* شريط نسبة الاجتياز للمعلم */}
-                                <div className="bg-gradient-to-br from-indigo-900 to-slate-900 text-white p-6 rounded-3xl shadow-xl flex flex-wrap justify-between items-center gap-6">
-                                    <div className="space-y-1">
-                                        <span className="text-xs text-indigo-200 font-bold block">مؤشر أداء الحلقة لـ ({EXAM_TYPES.find(x => x.id === selectedExamType)?.title})</span>
-                                        <h3 className="text-3xl font-extrabold flex items-center gap-3">
-                                            <span>نسبة الاجتياز:</span>
-                                            <span className={teacherExamStats.rate >= 80 ? "text-emerald-400" : teacherExamStats.rate >= 60 ? "text-amber-400" : "text-rose-400"}>
-                                                %{teacherExamStats.rate}
-                                            </span>
-                                        </h3>
-                                        <p className="text-xs text-slate-400">
-                                            تم اجتياز {teacherExamStats.passed} من أصل {teacherExamStats.graded} طالب تم رصدهم (إجمالي الحلقة: {teacherExamStats.total})
-                                        </p>
-                                    </div>
-                                    <div className="w-full md:w-64 bg-white/10 p-2 rounded-2xl border border-white/10 space-y-1.5">
-                                        <div className="flex justify-between text-xs font-bold text-slate-300">
-                                            <span>المعدل المئوي</span>
-                                            <span>%{teacherExamStats.rate}</span>
-                                        </div>
-                                        <div className="w-full bg-slate-800 h-3 rounded-full overflow-hidden">
-                                            <div 
-                                                className={`h-full transition-all duration-700 rounded-full ${teacherExamStats.rate >= 80 ? "bg-emerald-500" : teacherExamStats.rate >= 60 ? "bg-amber-500" : "bg-rose-500"}`}
-                                                style={{ width: `${teacherExamStats.rate}%` }}
-                                            ></div>
-                                        </div>
-                                    </div>
+                                {/* شريط تبويبات المعلم */}
+                                <div className="flex bg-white p-1.5 rounded-2xl border border-slate-100 shadow-sm gap-1">
+                                    <button 
+                                        onClick={() => setTeacherTab('attendance')}
+                                        className={`flex-1 py-3 rounded-xl font-bold text-xs md:text-sm transition-all ${teacherTab === 'attendance' ? 'bg-blue-600 text-white shadow-md' : 'text-slate-500 hover:bg-slate-50'}`}
+                                    >
+                                        تحضير اليوم ({getTodayDateStr()})
+                                    </button>
+                                    <button 
+                                        onClick={() => setTeacherTab('homework')}
+                                        className={`flex-1 py-3 rounded-xl font-bold text-xs md:text-sm transition-all ${teacherTab === 'homework' ? 'bg-purple-600 text-white shadow-md' : 'text-slate-500 hover:bg-slate-50'}`}
+                                    >
+                                        تسليم واجبات اليوم
+                                    </button>
+                                    <button 
+                                        onClick={() => setTeacherTab('exams')}
+                                        className={`flex-1 py-3 rounded-xl font-bold text-xs md:text-sm transition-all ${teacherTab === 'exams' ? 'bg-indigo-600 text-white shadow-md' : 'text-slate-500 hover:bg-slate-50'}`}
+                                    >
+                                        الاختبارات والتقييمات
+                                    </button>
                                 </div>
 
-                                <div className="bg-white rounded-3xl border border-slate-100 shadow-sm overflow-hidden p-5 space-y-4">
-                                    <div className="flex flex-wrap justify-between items-center gap-3 border-b pb-4">
-                                        <div className="flex items-center gap-2">
-                                            <span className="font-bold text-sm text-slate-700">تحديد الاختبار للرصد:</span>
-                                            <select 
-                                                value={selectedExamType} 
-                                                onChange={e => setSelectedExamType(e.target.value)}
-                                                className="bg-blue-50 text-blue-900 border border-blue-200 rounded-xl px-4 py-2 text-xs font-bold outline-none"
-                                            >
-                                                {EXAM_TYPES.map(ex => (
-                                                    <option key={ex.id} value={ex.id}>{ex.title}</option>
-                                                ))}
-                                            </select>
+                                {/* 1. رصد حضور الطلاب للمعلم */}
+                                {teacherTab === 'attendance' && (
+                                    <div className="space-y-4 max-w-3xl mx-auto">
+                                        <div className="bg-white rounded-3xl shadow-sm border border-slate-100 overflow-hidden divide-y divide-slate-50">
+                                            <div className="p-4 bg-slate-50 flex justify-between items-center text-xs">
+                                                <span className="font-bold text-slate-700">رصد الحضور لحلقة: {currentTeacher.subject}</span>
+                                                <span className="text-slate-400">الطلاب: {teacherStudents.length} (أبجدياً)</span>
+                                            </div>
+                                            {teacherStudents.map(s => {
+                                                const currentStatus = attendanceBatch[s.id] || 'present';
+                                                return (
+                                                    <div key={s.id} className={`p-4 flex flex-wrap justify-between items-center transition-colors gap-2 ${currentStatus === 'absent' ? 'bg-red-50' : currentStatus === 'excused' ? 'bg-amber-50' : ''}`}>
+                                                        <div>
+                                                            <span className="font-bold text-base text-slate-800">{s.name}</span>
+                                                            <span className="text-xs text-slate-400 block">غياباته السابقة: {s.absences || 0}</span>
+                                                        </div>
+                                                        <div className="flex gap-1 bg-slate-100 p-1 rounded-xl">
+                                                            <button onClick={() => setAttendanceBatch(prev => ({...prev, [s.id]: 'present'}))} className={`px-4 py-1.5 rounded-lg text-xs font-bold ${currentStatus === 'present' ? 'bg-emerald-600 text-white' : 'text-slate-600'}`}>حاضر</button>
+                                                            <button onClick={() => setAttendanceBatch(prev => ({...prev, [s.id]: 'excused'}))} className={`px-4 py-1.5 rounded-lg text-xs font-bold ${currentStatus === 'excused' ? 'bg-amber-500 text-white' : 'text-slate-600'}`}>مستئذن</button>
+                                                            <button onClick={() => setAttendanceBatch(prev => ({...prev, [s.id]: 'absent'}))} className={`px-4 py-1.5 rounded-lg text-xs font-bold ${currentStatus === 'absent' ? 'bg-red-600 text-white' : 'text-slate-600'}`}>غائب</button>
+                                                        </div>
+                                                    </div>
+                                                );
+                                            })}
                                         </div>
-                                        <span className="text-xs text-slate-400 font-bold">عدد طلاب الحلقة: {teacherStudents.length} طالب</span>
+                                        {teacherStudents.length > 0 && (
+                                            <button onClick={() => submitAttendance(currentTeacher.subject)} className="w-full bg-blue-600 hover:bg-blue-700 text-white py-4 rounded-2xl font-bold shadow-lg transition-all">
+                                                اعتماد كشف التحضير وإرساله للإدارة سحابياً ✓
+                                            </button>
+                                        )}
                                     </div>
+                                )}
 
-                                    <div className="overflow-x-auto">
-                                        <table className="w-full text-right text-sm">
-                                            <thead className="bg-slate-50 text-slate-500 text-xs">
-                                                <tr>
-                                                    <th className="p-4 font-bold">اسم الطالب</th>
-                                                    <th className="p-4 font-bold text-center">الدرجة / التقدير</th>
-                                                    <th className="p-4 font-bold text-center">ملاحظات المعلم (تظهر بالإكسل)</th>
-                                                    <th className="p-4 font-bold text-center">إشعار ولي الأمر</th>
-                                                </tr>
-                                            </thead>
-                                            <tbody className="divide-y divide-slate-100">
-                                                {teacherStudents.map(s => {
-                                                    const currentGrade = s.exams?.[selectedExamType] || '';
-                                                    const currentNotes = s.examNotes?.[selectedExamType] || '';
-                                                    const isFinal = selectedExamType === 'final_exam';
-                                                    const examTitle = EXAM_TYPES.find(x => x.id === selectedExamType)?.title;
+                                {/* 2. رصد تسليم الواجبات للمعلم */}
+                                {teacherTab === 'homework' && (
+                                    <div className="space-y-4 max-w-3xl mx-auto">
+                                        <div className="bg-purple-50 p-4 rounded-2xl text-xs text-purple-900 border border-purple-100 flex justify-between items-center">
+                                            <span>رصد تسليم الواجبات لحلقة: <b>{currentTeacher.subject}</b> (الحد الأقصى 15 واجباً)[cite: 1]</span>
+                                            <span className="font-bold text-purple-700">لم يسلموا: {Object.values(homeworkBatch).filter(v => v === 'missed').length}</span>
+                                        </div>
+                                        <div className="bg-white rounded-3xl shadow-sm border border-slate-100 overflow-hidden divide-y divide-slate-50">
+                                            {teacherStudents.map(s => {
+                                                const currentStatus = homeworkBatch[s.id] || 'submitted';
+                                                const alert = getHomeworkAlert(s.missedHomework || 0);
 
-                                                    let whatsappMsg = isFinal
-                                                        ? settings.final_exam_template
-                                                            .replace(/{student_name}/g, s.name)
-                                                            .replace(/{grade}/g, currentGrade || 'لم تحدد بعد')
-                                                            .replace(/{notes}/g, currentNotes || 'لا توجد ملاحظات')
-                                                        : settings.formative_exam_template
-                                                            .replace(/{student_name}/g, s.name)
-                                                            .replace(/{exam_name}/g, examTitle)
-                                                            .replace(/{grade}/g, currentGrade || 'لم تحدد بعد')
-                                                            .replace(/{notes}/g, currentNotes || 'لا توجد ملاحظات');
+                                                return (
+                                                    <div key={s.id} className={`p-4 flex flex-wrap justify-between items-center transition-colors gap-2 ${currentStatus === 'missed' ? 'bg-rose-50' : ''}`}>
+                                                        <div>
+                                                            <span className="font-bold text-base text-slate-800">{s.name}</span>
+                                                            <div className="flex items-center gap-2 mt-1">
+                                                                <span className="text-xs text-slate-400">مرات عدم التسليم: {s.missedHomework || 0}</span>
+                                                                <span className={`text-[10px] px-2 py-0.5 rounded font-bold ${alert.color}`}>{alert.text}</span>
+                                                            </div>
+                                                        </div>
+                                                        <div className="flex gap-1 bg-slate-100 p-1 rounded-xl">
+                                                            <button onClick={() => setHomeworkBatch(prev => ({...prev, [s.id]: 'submitted'}))} className={`px-4 py-1.5 rounded-lg text-xs font-bold ${currentStatus === 'submitted' ? 'bg-emerald-600 text-white' : 'text-slate-600'}`}>حل الواجب ✓</button>
+                                                            <button onClick={() => setHomeworkBatch(prev => ({...prev, [s.id]: 'missed'}))} className={`px-4 py-1.5 rounded-lg text-xs font-bold ${currentStatus === 'missed' ? 'bg-red-600 text-white' : 'text-slate-600'}`}>لم يحل ✕</button>
+                                                        </div>
+                                                    </div>
+                                                );
+                                            })}
+                                        </div>
+                                        {teacherStudents.length > 0 && (
+                                            <button onClick={() => submitHomework(currentTeacher.subject)} className="w-full bg-purple-700 hover:bg-purple-800 text-white py-4 rounded-2xl font-bold shadow-lg transition-all">
+                                                اعتماد كشف الواجبات وإرساله للإدارة سحابياً ✓
+                                            </button>
+                                        )}
+                                    </div>
+                                )}
 
-                                                    return (
-                                                        <tr key={s.id} className="hover:bg-slate-50">
-                                                            <td className="p-4">
-                                                                <div className="font-bold text-slate-800">{s.name}</div>
-                                                                <div className="text-xs text-slate-400" dir="ltr">{s.phone}</div>
-                                                            </td>
-                                                            <td className="p-4 text-center">
-                                                                {isFinal ? (
-                                                                    <div className="inline-flex gap-1 bg-slate-100 p-1 rounded-xl">
-                                                                        <button 
-                                                                            onClick={() => handleUpdateStudentExam(s.id, selectedExamType, 'مجتاز')}
-                                                                            className={`px-4 py-1.5 rounded-lg text-xs font-bold transition-all ${currentGrade === 'مجتاز' ? 'bg-emerald-600 text-white shadow-sm' : 'text-slate-600'}`}
-                                                                        >
-                                                                            مجتاز ✓
-                                                                        </button>
-                                                                        <button 
-                                                                            onClick={() => handleUpdateStudentExam(s.id, selectedExamType, 'غير مجتاز')}
-                                                                            className={`px-4 py-1.5 rounded-lg text-xs font-bold transition-all ${currentGrade === 'غير مجتاز' ? 'bg-red-600 text-white shadow-sm' : 'text-slate-600'}`}
-                                                                        >
-                                                                            غير مجتاز ✕
-                                                                        </button>
-                                                                    </div>
-                                                                ) : (
-                                                                    <div className="inline-flex gap-1 bg-slate-100 p-1 rounded-xl">
-                                                                        <button 
-                                                                            onClick={() => handleUpdateStudentExam(s.id, selectedExamType, 'متمكن')}
-                                                                            className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-all ${currentGrade === 'متمكن' ? 'bg-emerald-600 text-white shadow-sm' : 'text-slate-600'}`}
-                                                                        >
-                                                                            متمكن 🌟
-                                                                        </button>
-                                                                        <button 
-                                                                            onClick={() => handleUpdateStudentExam(s.id, selectedExamType, 'ضعيف')}
-                                                                            className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-all ${currentGrade === 'ضعيف' ? 'bg-amber-500 text-white shadow-sm' : 'text-slate-600'}`}
-                                                                        >
-                                                                            ضعيف ⚠️
-                                                                        </button>
-                                                                        <button 
-                                                                            onClick={() => handleUpdateStudentExam(s.id, selectedExamType, 'مخفق')}
-                                                                            className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-all ${currentGrade === 'مخفق' ? 'bg-red-600 text-white shadow-sm' : 'text-slate-600'}`}
-                                                                        >
-                                                                            مخفق ✕
-                                                                        </button>
-                                                                    </div>
-                                                                )}
-                                                            </td>
-                                                            <td className="p-4 text-center">
-                                                                <textarea 
-                                                                    defaultValue={currentNotes} 
-                                                                    placeholder="اكتب ملاحظة حول أداء الطالب..." 
-                                                                    rows="2"
-                                                                    className="w-full min-w-[200px] max-w-md p-2.5 text-xs bg-slate-50 border-2 border-slate-200 rounded-xl outline-none focus:border-blue-600 focus:bg-white transition-all resize-y shadow-inner"
-                                                                    onBlur={(e) => handleUpdateStudentExamNotes(s.id, selectedExamType, e.target.value)}
-                                                                />
-                                                            </td>
-                                                            <td className="p-4 text-center">
-                                                                {currentGrade ? (
-                                                                    <a 
-                                                                        href={`https://wa.me/${s.phone}?text=${encodeURIComponent(whatsappMsg)}`} 
-                                                                        target="_blank" 
-                                                                        className="inline-flex items-center gap-1 bg-emerald-500 hover:bg-emerald-600 text-white px-3 py-1.5 rounded-xl text-xs font-bold transition-all"
-                                                                    >
-                                                                        إرسال واتساب 💬
-                                                                    </a>
-                                                                ) : (
-                                                                    <span className="text-xs text-slate-300 font-bold">بانتظار رصدك</span>
-                                                                )}
-                                                            </td>
+                                {/* 3. رصد الاختبارات والملاحظات للمعلم */}
+                                {teacherTab === 'exams' && (
+                                    <div className="space-y-6">
+                                        <div className="bg-gradient-to-br from-indigo-900 to-slate-900 text-white p-6 rounded-3xl shadow-xl flex flex-wrap justify-between items-center gap-6">
+                                            <div className="space-y-1">
+                                                <span className="text-xs text-indigo-200 font-bold block">مؤشر أداء الحلقة لـ ({EXAM_TYPES.find(x => x.id === selectedExamType)?.title})</span>
+                                                <h3 className="text-3xl font-extrabold flex items-center gap-3">
+                                                    <span>نسبة الاجتياز:</span>
+                                                    <span className={teacherExamStats.rate >= 80 ? "text-emerald-400" : teacherExamStats.rate >= 60 ? "text-amber-400" : "text-rose-400"}>
+                                                        %{teacherExamStats.rate}
+                                                    </span>
+                                                </h3>
+                                                <p className="text-xs text-slate-400">
+                                                    اجتاز {teacherExamStats.passed} من أصل {teacherExamStats.graded} طالب تم رصدهم (إجمالي طلاب الحلقة: {teacherExamStats.total})
+                                                </p>
+                                            </div>
+                                            <div className="w-full md:w-64 bg-white/10 p-2.5 rounded-2xl border border-white/10 space-y-1.5">
+                                                <div className="flex justify-between text-xs font-bold text-slate-300">
+                                                    <span>المعدل المئوي</span>
+                                                    <span>%{teacherExamStats.rate}</span>
+                                                </div>
+                                                <div className="w-full bg-slate-800 h-3 rounded-full overflow-hidden">
+                                                    <div 
+                                                        className={`h-full transition-all duration-700 rounded-full ${teacherExamStats.rate >= 80 ? "bg-emerald-500" : teacherExamStats.rate >= 60 ? "bg-amber-500" : "bg-rose-500"}`}
+                                                        style={{ width: `${teacherExamStats.rate}%` }}
+                                                    ></div>
+                                                </div>
+                                            </div>
+                                        </div>
+
+                                        <div className="bg-white rounded-3xl border border-slate-100 shadow-sm overflow-hidden p-5 space-y-4">
+                                            <div className="flex flex-wrap justify-between items-center gap-3 border-b pb-4">
+                                                <div className="flex items-center gap-2">
+                                                    <span className="font-bold text-sm text-slate-700">تحديد الاختبار للرصد:</span>
+                                                    <select 
+                                                        value={selectedExamType} 
+                                                        onChange={e => setSelectedExamType(e.target.value)}
+                                                        className="bg-blue-50 text-blue-900 border border-blue-200 rounded-xl px-4 py-2 text-xs font-bold outline-none"
+                                                    >
+                                                        {EXAM_TYPES.map(ex => (
+                                                            <option key={ex.id} value={ex.id}>{ex.title}</option>
+                                                        ))}
+                                                    </select>
+                                                </div>
+                                                <button 
+                                                    onClick={() => exportExamsToExcel(teacherStudents, currentTeacher.subject)}
+                                                    className="bg-emerald-600 hover:bg-emerald-700 text-white px-4 py-2 rounded-xl text-xs font-bold shadow-sm transition-all flex items-center gap-1"
+                                                >
+                                                    📥 تصدير درجات حلقتي Excel
+                                                </button>
+                                            </div>
+
+                                            <div className="overflow-x-auto">
+                                                <table className="w-full text-right text-sm">
+                                                    <thead className="bg-slate-50 text-slate-500 text-xs">
+                                                        <tr>
+                                                            <th className="p-4 font-bold">اسم الطالب</th>
+                                                            <th className="p-4 font-bold text-center">الدرجة / التقدير</th>
+                                                            <th className="p-4 font-bold text-center">ملاحظات المعلم</th>
                                                         </tr>
-                                                    );
-                                                })}
-                                            </tbody>
-                                        </table>
+                                                    </thead>
+                                                    <tbody className="divide-y divide-slate-100">
+                                                        {teacherStudents.map(s => {
+                                                            const currentGrade = s.exams?.[selectedExamType] || '';
+                                                            const currentNotes = s.examNotes?.[selectedExamType] || '';
+                                                            const isFinal = selectedExamType === 'final_exam';
+
+                                                            return (
+                                                                <tr key={s.id} className="hover:bg-slate-50">
+                                                                    <td className="p-4">
+                                                                        <div className="font-bold text-slate-800">{s.name}</div>
+                                                                        <div className="text-xs text-slate-400" dir="ltr">{s.phone}</div>
+                                                                    </td>
+                                                                    <td className="p-4 text-center">
+                                                                        {isFinal ? (
+                                                                            <div className="inline-flex gap-1 bg-slate-100 p-1 rounded-xl">
+                                                                                <button 
+                                                                                    onClick={() => handleUpdateStudentExam(s.id, selectedExamType, 'مجتاز')}
+                                                                                    className={`px-4 py-1.5 rounded-lg text-xs font-bold transition-all ${currentGrade === 'مجتاز' ? 'bg-emerald-600 text-white shadow-sm' : 'text-slate-600'}`}
+                                                                                >
+                                                                                    مجتاز ✓
+                                                                                </button>
+                                                                                <button 
+                                                                                    onClick={() => handleUpdateStudentExam(s.id, selectedExamType, 'غير مجتاز')}
+                                                                                    className={`px-4 py-1.5 rounded-lg text-xs font-bold transition-all ${currentGrade === 'غير مجتاز' ? 'bg-red-600 text-white shadow-sm' : 'text-slate-600'}`}
+                                                                                >
+                                                                                    غير مجتاز ✕
+                                                                                </button>
+                                                                            </div>
+                                                                        ) : (
+                                                                            <div className="inline-flex gap-1 bg-slate-100 p-1 rounded-xl">
+                                                                                <button 
+                                                                                    onClick={() => handleUpdateStudentExam(s.id, selectedExamType, 'متمكن')}
+                                                                                    className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-all ${currentGrade === 'متمكن' ? 'bg-emerald-600 text-white shadow-sm' : 'text-slate-600'}`}
+                                                                                >
+                                                                                    متمكن 🌟
+                                                                                </button>
+                                                                                <button 
+                                                                                    onClick={() => handleUpdateStudentExam(s.id, selectedExamType, 'ضعيف')}
+                                                                                    className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-all ${currentGrade === 'ضعيف' ? 'bg-amber-500 text-white shadow-sm' : 'text-slate-600'}`}
+                                                                                >
+                                                                                    ضعيف ⚠️
+                                                                                </button>
+                                                                                <button 
+                                                                                    onClick={() => handleUpdateStudentExam(s.id, selectedExamType, 'مخفق')}
+                                                                                    className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-all ${currentGrade === 'مخفق' ? 'bg-red-600 text-white shadow-sm' : 'text-slate-600'}`}
+                                                                                >
+                                                                                    مخفق ✕
+                                                                                </button>
+                                                                            </div>
+                                                                        )}
+                                                                    </td>
+                                                                    <td className="p-4 text-center">
+                                                                        <textarea 
+                                                                            defaultValue={currentNotes} 
+                                                                            placeholder="اكتب ملاحظة حول أداء الطالب..." 
+                                                                            rows="2"
+                                                                            className="w-full min-w-[200px] max-w-md p-2.5 text-xs bg-slate-50 border-2 border-slate-200 rounded-xl outline-none focus:border-blue-600 focus:bg-white transition-all resize-y shadow-inner"
+                                                                            onBlur={(e) => handleUpdateStudentExamNotes(s.id, selectedExamType, e.target.value)}
+                                                                        />
+                                                                    </td>
+                                                                </tr>
+                                                            );
+                                                        })}
+                                                    </tbody>
+                                                </table>
+                                            </div>
+                                        </div>
                                     </div>
-                                </div>
+                                )}
                             </div>
                         ) : role === 'monitor' ? (
-                            /* ======================= بوابة المسجل ======================= */
+                            /* ======================= بوابة المسجل (احتياط لرصد أي حلقة وتحضير المعلمين) ======================= */
                             <div className="space-y-6">
                                 {!activeMonitorGroup && !isMonitoringTeachers ? (
                                     <div className="space-y-4">
@@ -1253,7 +1366,7 @@
                                         >
                                             <div className="space-y-1">
                                                 <div className="flex items-center gap-2">
-                                                    <span className="bg-white/20 px-3 py-1 rounded-xl text-xs font-bold">رصد خاص</span>
+                                                    <span className="bg-white/20 px-3 py-1 rounded-xl text-xs font-bold">خاص بالمسجل</span>
                                                     <h2 className="font-extrabold text-xl">📋 تحضير المعلمين لليوم</h2>
                                                 </div>
                                                 <p className="text-xs text-blue-100">رصد الحضور اليومي للمعلمين هجائياً واعتماده سحابياً ({teachers.length} معلم)</p>
@@ -1268,8 +1381,8 @@
 
                                         <div className="bg-blue-50 p-5 rounded-2xl border border-blue-100 flex justify-between items-center">
                                             <div>
-                                                <h2 className="font-bold text-blue-900 text-lg">قائمة الحلقات والصفوف (تحضير وواجبات الطلاب)</h2>
-                                                <p className="text-xs text-blue-600 mt-1">اختر الحلقة لبدء التحضير (الأسماء مرتبة أبجدياً أ-ي لتسهيل الرصد)</p>
+                                                <h2 className="font-bold text-blue-900 text-lg">تحضير الحلقات البديل (عند غياب المعلم)</h2>
+                                                <p className="text-xs text-blue-600 mt-1">اختر الحلقة التي ترغب بتحضيرها نيابة عن معلمها الغائب</p>
                                             </div>
                                             <span className="bg-blue-600 text-white text-xs font-bold px-3 py-1.5 rounded-xl">{groups.length} حلقات</span>
                                         </div>
@@ -1290,8 +1403,8 @@
                                                             <h3 className="font-bold text-slate-800 text-lg">{g}</h3>
                                                             <p className="text-xs text-slate-400 mt-1">{count} طالب نشط</p>
                                                             <div className="flex gap-2 mt-2">
-                                                                {isAttDone && <span className="text-[10px] bg-emerald-100 text-emerald-700 font-bold px-2 py-0.5 rounded">التحضير مسجل ✓</span>}
-                                                                {isHwDone && <span className="text-[10px] bg-purple-100 text-purple-700 font-bold px-2 py-0.5 rounded">الواجبات مسجلة ✓</span>}
+                                                                {isAttDone && <span className="text-[10px] bg-emerald-100 text-emerald-700 font-bold px-2 py-0.5 rounded">التحضير مرصود ✓</span>}
+                                                                {isHwDone && <span className="text-[10px] bg-purple-100 text-purple-700 font-bold px-2 py-0.5 rounded">الواجبات مرصودة ✓</span>}
                                                             </div>
                                                         </div>
                                                         <span className="text-blue-600 font-bold text-xl">←</span>
@@ -1346,7 +1459,7 @@
                                             </button>
                                             <div className="text-center">
                                                 <h2 className="font-bold text-lg text-slate-800">{activeMonitorGroup}</h2>
-                                                <span className="text-[10px] text-slate-400 font-bold block">مرتبة أبجدياً (أ - ي)</span>
+                                                <span className="text-[10px] text-slate-400 font-bold block">تحضير بديل بواسطة المسجل</span>
                                             </div>
                                             
                                             <div className="flex bg-slate-100 p-1 rounded-xl">
@@ -1377,7 +1490,7 @@
                                                                 <div key={s.id} className={`p-4 flex justify-between items-center transition-colors ${currentStatus === 'absent' ? 'bg-red-50' : currentStatus === 'excused' ? 'bg-amber-50' : ''}`}>
                                                                     <div>
                                                                         <span className="font-bold text-base text-slate-800">{s.name}</span>
-                                                                        <span className="text-xs text-slate-400 block">غيابات: {s.absences || 0} | واجبات غير مسلمة: {s.missedHomework || 0}</span>
+                                                                        <span className="text-xs text-slate-400 block">غياباته: {s.absences || 0}</span>
                                                                     </div>
                                                                     <div className="flex gap-1 bg-slate-100 p-1 rounded-xl">
                                                                         <button onClick={() => setAttendanceBatch(prev => ({...prev, [s.id]: 'present'}))} className={`px-3 py-1.5 rounded-lg text-xs font-bold ${currentStatus === 'present' ? 'bg-emerald-600 text-white' : 'text-slate-600'}`}>حاضر</button>
@@ -1388,7 +1501,7 @@
                                                             );
                                                         })}
                                                 </div>
-                                                <button onClick={submitAttendance} className="w-full bg-emerald-600 hover:bg-emerald-700 text-white py-4 rounded-2xl font-bold shadow-lg transition-all">
+                                                <button onClick={() => submitAttendance()} className="w-full bg-emerald-600 hover:bg-emerald-700 text-white py-4 rounded-2xl font-bold shadow-lg transition-all">
                                                     اعتماد كشف التحضير سحابياً ✓
                                                 </button>
                                             </>
@@ -1397,7 +1510,7 @@
                                         {monitorMode === 'homework' && (
                                             <>
                                                 <div className="bg-purple-50 p-3 rounded-2xl text-xs text-purple-900 border border-purple-100 flex justify-between items-center">
-                                                    <span>رصد تسليم الواجبات مرتبة هجائياً (الحد الأقصى 15 واجباً)[cite: 1]</span>
+                                                    <span>رصد تسليم الواجبات لحلقة: {activeMonitorGroup}</span>
                                                     <span className="font-bold text-purple-700">لم يسلموا: {Object.values(homeworkBatch).filter(v => v === 'missed').length}</span>
                                                 </div>
                                                 <div className="bg-white rounded-3xl shadow-sm border border-slate-100 overflow-hidden divide-y divide-slate-50">
@@ -1413,7 +1526,7 @@
                                                                     <div>
                                                                         <span className="font-bold text-base text-slate-800">{s.name}</span>
                                                                         <div className="flex items-center gap-2 mt-1">
-                                                                            <span className="text-xs text-slate-400">مرات عدم التسليم السابقة: {s.missedHomework || 0}</span>
+                                                                            <span className="text-xs text-slate-400">مرات عدم التسليم: {s.missedHomework || 0}</span>
                                                                             <span className={`text-[10px] px-2 py-0.5 rounded font-bold ${alert.color}`}>{alert.text}</span>
                                                                         </div>
                                                                     </div>
@@ -1425,7 +1538,7 @@
                                                             );
                                                         })}
                                                 </div>
-                                                <button onClick={submitHomework} className="w-full bg-purple-700 hover:bg-purple-800 text-white py-4 rounded-2xl font-bold shadow-lg transition-all">
+                                                <button onClick={() => submitHomework()} className="w-full bg-purple-700 hover:bg-purple-800 text-white py-4 rounded-2xl font-bold shadow-lg transition-all">
                                                     اعتماد كشف الواجبات سحابياً ✓
                                                 </button>
                                             </>
@@ -1434,11 +1547,11 @@
                                 )}
                             </div>
                         ) : (
-                            /* ======================= لوحة تحكم المشرف ======================= */
+                            /* ======================= لوحة تحكم المشرف (إرسال الرسائل والإدارة) ======================= */
                             <div className="space-y-6">
                                 <div className="flex flex-wrap bg-white p-1.5 rounded-2xl border border-slate-100 shadow-sm gap-1">
                                     {[
-                                        { id: 'inbox', label: `الوارد (${logs.length + homeworkLogs.length})` },
+                                        { id: 'inbox', label: `الوارد المعتمد (${logs.length + homeworkLogs.length})` },
                                         { id: 'students', label: 'الطلاب والحلقات' },
                                         { id: 'exams', label: 'الاختبارات والتقييمات' },
                                         { id: 'homework_records', label: 'متابعة وتنبيهات الواجبات' },
@@ -1456,6 +1569,7 @@
                                     ))}
                                 </div>
 
+                                {/* صندوق الوارد: المشرف يرسل رسائل الواتساب للغياب والواجبات المعتمدة */}
                                 {view === 'inbox' && (
                                     <div className="space-y-4">
                                         <div className="flex gap-2 border-b pb-2">
@@ -1463,13 +1577,13 @@
                                                 onClick={() => setInboxSubTab('attendance')}
                                                 className={`px-4 py-2 rounded-xl text-xs font-bold transition-all ${inboxSubTab === 'attendance' ? 'bg-blue-600 text-white' : 'bg-slate-100 text-slate-600'}`}
                                             >
-                                                كشوفات الحضور ({logs.length})
+                                                كشوفات الحضور الواردة ({logs.length})
                                             </button>
                                             <button 
                                                 onClick={() => setInboxSubTab('homework')}
                                                 className={`px-4 py-2 rounded-xl text-xs font-bold transition-all ${inboxSubTab === 'homework' ? 'bg-purple-600 text-white' : 'bg-slate-100 text-slate-600'}`}
                                             >
-                                                كشوفات الواجبات ({homeworkLogs.length})
+                                                كشوفات الواجبات الواردة ({homeworkLogs.length})
                                             </button>
                                         </div>
 
@@ -1483,10 +1597,15 @@
 
                                                     return (
                                                         <div key={log.id} className="bg-white rounded-3xl border border-slate-100 shadow-sm p-5 space-y-4">
-                                                            <div className="flex justify-between items-center border-b pb-3">
+                                                            <div className="flex flex-wrap justify-between items-center border-b pb-3 gap-2">
                                                                 <div className="flex items-center gap-2">
                                                                     <span className="bg-blue-100 text-blue-700 px-3 py-1 rounded-full text-xs font-bold">{log.group}</span>
                                                                     <span className="text-xs text-slate-400">{log.date}</span>
+                                                                    {log.submittedBy && (
+                                                                        <span className="bg-slate-100 text-slate-600 text-[11px] px-2.5 py-0.5 rounded-lg font-bold">
+                                                                            تم الاعتماد بواسطة: {log.submittedBy}
+                                                                        </span>
+                                                                    )}
                                                                 </div>
                                                                 <button onClick={() => handleDeleteLog(log.id)} className="text-xs bg-red-50 text-red-600 hover:bg-red-100 font-bold px-3 py-1.5 rounded-xl transition-all">إزالة الكشف 🗑️</button>
                                                             </div>
@@ -1546,10 +1665,15 @@
 
                                                     return (
                                                         <div key={log.id} className="bg-white rounded-3xl border border-slate-100 shadow-sm p-5 space-y-4">
-                                                            <div className="flex justify-between items-center border-b pb-3">
+                                                            <div className="flex flex-wrap justify-between items-center border-b pb-3 gap-2">
                                                                 <div className="flex items-center gap-2">
                                                                     <span className="bg-purple-100 text-purple-700 px-3 py-1 rounded-full text-xs font-bold">واجبات: {log.group}</span>
                                                                     <span className="text-xs text-slate-400">{log.date}</span>
+                                                                    {log.submittedBy && (
+                                                                        <span className="bg-slate-100 text-slate-600 text-[11px] px-2.5 py-0.5 rounded-lg font-bold">
+                                                                            تم الاعتماد بواسطة: {log.submittedBy}
+                                                                        </span>
+                                                                    )}
                                                                 </div>
                                                                 <button onClick={() => handleDeleteHwLog(log.id)} className="text-xs bg-red-50 text-red-600 hover:bg-red-100 font-bold px-3 py-1.5 rounded-xl transition-all">إزالة الكشف 🗑️</button>
                                                             </div>
@@ -1588,11 +1712,6 @@
                                                         </div>
                                                     );
                                                 })}
-                                                {homeworkLogs.length === 0 && (
-                                                    <div className="text-center py-20 text-slate-400 font-bold bg-white rounded-3xl border border-slate-100">
-                                                        لا توجد كشوفات واجبات واردة حتى الآن
-                                                    </div>
-                                                )}
                                             </div>
                                         )}
                                     </div>
@@ -1736,7 +1855,6 @@
                                     </div>
                                 )}
 
-                                {/* تبويب الاختبارات والتقييمات مع مؤشر نسبة الاجتياز */}
                                 {view === 'exams' && (
                                     <div className="space-y-6">
                                         <div className="bg-white p-5 rounded-3xl border border-slate-100 shadow-sm flex flex-wrap justify-between items-center gap-4">
@@ -1774,7 +1892,6 @@
                                             </div>
                                         </div>
 
-                                        {/* شريط نسبة الاجتياز الديناميكي حسب الفلتر المختار */}
                                         <div className="bg-gradient-to-br from-blue-950 via-slate-900 to-indigo-950 text-white p-6 rounded-3xl shadow-xl flex flex-wrap justify-between items-center gap-6 border border-slate-800">
                                             <div className="space-y-1">
                                                 <div className="flex items-center gap-2">
@@ -1804,10 +1921,6 @@
                                                         className={`h-full transition-all duration-700 rounded-full ${supervisorExamStats.rate >= 80 ? "bg-emerald-500" : supervisorExamStats.rate >= 60 ? "bg-amber-500" : "bg-rose-500"}`}
                                                         style={{ width: `${supervisorExamStats.rate}%` }}
                                                     ></div>
-                                                </div>
-                                                <div className="flex justify-between text-[11px] text-slate-400">
-                                                    <span>مخفق/غير مجتاز: {supervisorExamStats.failed}</span>
-                                                    <span>مجتاز: {supervisorExamStats.passed}</span>
                                                 </div>
                                             </div>
                                         </div>
