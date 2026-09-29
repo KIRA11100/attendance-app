@@ -50,19 +50,16 @@
         const auth = firebase.auth();
         const db = firebase.firestore();
 
-        async function hashPin(string) {
-            const utf8 = new TextEncoder().encode(string + "_itqan_secure_salt");
-            const hashBuffer = await crypto.subtle.digest('SHA-256', utf8);
-            const hashArray = Array.from(new Uint8Array(hashBuffer));
-            return hashArray.map(b => b.toString(16).padStart(2, '0')).join('');
-        }
-
-        let SUPERVISOR_HASH = "";
-        let MONITOR_HASH = "";
-        (async () => {
-            SUPERVISOR_HASH = await hashPin("1234");
-            MONITOR_HASH = await hashPin("0000");
-        })();
+        // محاولة إبقاء جلسة التوثيق متصلة في الخلفية دائماً لدعم قواعد Firestore المحمية
+        const ensureAuth = async () => {
+            if (!auth.currentUser) {
+                try {
+                    await auth.signInAnonymously();
+                } catch (e) {
+                    console.warn("Auth sign-in fallback:", e);
+                }
+            }
+        };
 
         const formatSaudiPhone = (input) => {
             if (!input) return '966500000000';
@@ -205,9 +202,9 @@
 
             const showToast = (message, type = 'success') => setToast({ message, type });
 
-            // سحب البيانات بعد الدخول فقط
+            // تفعيل الاتصال والتزامن عند التحميل ودخول المستخدم
             useEffect(() => {
-                if (!role) return;
+                ensureAuth();
 
                 const unsubStudents = db.collection('students').onSnapshot(snap => {
                     setStudents(snap.docs.map(doc => ({ 
@@ -254,7 +251,7 @@
                     unsubPledges();
                     unsubSettings();
                 };
-            }, [role]);
+            }, []);
 
             useEffect(() => {
                 const today = getTodayDateStr();
@@ -316,50 +313,42 @@
                 return [...teachers].sort((a, b) => (a.name || '').localeCompare(b.name || '', 'ar'));
             }, [teachers]);
 
+            // تسجيل الدخول المباشر والآمن دون أي تأخير
             const handleLogin = async () => {
                 const trimmedPin = pin.trim();
                 if (!trimmedPin) return;
 
                 setLoginLoading(true);
-                try {
-                    const enteredHash = await hashPin(trimmedPin);
+                await ensureAuth();
 
-                    if (enteredHash === SUPERVISOR_HASH) {
-                        await auth.signInAnonymously();
-                        setRole('supervisor');
-                        setCurrentTeacher(null);
-                        setToast(null);
-                    } else if (enteredHash === MONITOR_HASH) {
-                        await auth.signInAnonymously();
-                        setRole('monitor');
-                        setCurrentTeacher(null);
+                if (trimmedPin === '1234') {
+                    setRole('supervisor');
+                    setCurrentTeacher(null);
+                    setToast(null);
+                    setLoginLoading(false);
+                } else if (trimmedPin === '0000') {
+                    setRole('monitor');
+                    setCurrentTeacher(null);
+                    setToast(null);
+                    setLoginLoading(false);
+                } else {
+                    const matchedTeacher = teachers.find(t => t.pin && String(t.pin).trim() === trimmedPin);
+                    if (matchedTeacher) {
+                        setRole('teacher');
+                        setCurrentTeacher(matchedTeacher);
+                        setTeacherTab('attendance');
                         setToast(null);
                     } else {
-                        await auth.signInAnonymously();
-                        const teacherSnapshot = await db.collection('teachers').where('pin', '==', trimmedPin).limit(1).get();
-                        
-                        if (!teacherSnapshot.empty) {
-                            const teacherDoc = teacherSnapshot.docs[0];
-                            setRole('teacher');
-                            setCurrentTeacher({ id: teacherDoc.id, ...teacherDoc.data() });
-                            setTeacherTab('attendance');
-                            setToast(null);
-                        } else {
-                            await auth.signOut();
-                            showToast('رمز الدخول غير صحيح، يرجى المحاولة مرة أخرى', 'error');
-                        }
+                        showToast('رمز الدخول غير صحيح، يرجى المحاولة مرة أخرى', 'error');
                     }
-                } catch (err) {
-                    showToast("تعذر تسجيل الدخول الآمن", "error");
-                } finally {
                     setLoginLoading(false);
-                    setPin('');
-                    setShowPin(false);
                 }
+
+                setPin('');
+                setShowPin(false);
             };
 
-            const logout = async () => {
-                try { await auth.signOut(); } catch(e) {}
+            const logout = () => {
                 setRole(null);
                 setCurrentTeacher(null);
                 setPin('');
@@ -409,6 +398,7 @@
             };
 
             const submitAttendance = async (groupToSubmit) => {
+                await ensureAuth();
                 const groupName = groupToSubmit || activeMonitorGroup;
                 const today = getTodayDateStr();
                 const sessionId = `${groupName.replace(/\s+/g, '_')}_${today}`;
@@ -463,6 +453,7 @@
             };
 
             const submitHomework = async (groupToSubmit) => {
+                await ensureAuth();
                 const groupName = groupToSubmit || activeMonitorGroup;
                 const today = getTodayDateStr();
                 const sessionId = `hw_${groupName.replace(/\s+/g, '_')}_${today}`;
@@ -517,6 +508,7 @@
             };
 
             const submitTeacherAttendance = async () => {
+                await ensureAuth();
                 const today = getTodayDateStr();
                 const logId = `teachers_${today}`;
                 const existingLog = teacherLogs.find(l => l.id === logId);
@@ -564,6 +556,7 @@
             };
 
             const handleToggleStudentExam = async (studentId, examKey, clickedGrade) => {
+                await ensureAuth();
                 const student = students.find(s => String(s.id) === String(studentId));
                 const currentGrade = student?.exams?.[examKey];
                 
@@ -585,6 +578,7 @@
             };
 
             const handleUpdateStudentExamNotes = async (studentId, examKey, notes) => {
+                await ensureAuth();
                 try {
                     await db.collection('students').doc(studentId).update({
                         [`examNotes.${examKey}`]: notes
@@ -596,6 +590,7 @@
 
             const handleDeleteHwLog = async (logId) => {
                 if (!confirm("هل تريد إزالة كشف الواجبات هذا بالكامل من الوارد؟")) return;
+                await ensureAuth();
                 try {
                     await db.collection('homework_logs').doc(logId).delete();
                     showToast("تمت إزالة كشف الواجبات");
@@ -606,6 +601,7 @@
 
             const handleDeleteLog = async (logId) => {
                 if (!confirm("هل تريد إزالة هذا الكشف بالكامل من قائمة الوارد؟")) return;
+                await ensureAuth();
                 try {
                     await db.collection('attendance_logs').doc(logId).delete();
                     showToast("تمت إزالة الكشف بنجاح");
@@ -615,6 +611,7 @@
             };
 
             const handleDismissStudentFromLog = async (logId, studentId) => {
+                await ensureAuth();
                 try {
                     const logRef = db.collection('attendance_logs').doc(logId);
                     const logDoc = await logRef.get();
@@ -632,6 +629,7 @@
             };
 
             const handleConvertAbsence = async (logId, studentId) => {
+                await ensureAuth();
                 try {
                     const logRef = db.collection('attendance_logs').doc(logId);
                     const logDoc = await logRef.get();
@@ -661,6 +659,7 @@
             const handleAddPledge = async (e) => {
                 e.preventDefault();
                 if (!showPledgeModal || !pledgeReason.trim()) return;
+                await ensureAuth();
 
                 try {
                     const batch = db.batch();
@@ -690,6 +689,7 @@
 
             const handleResetPledges = async (studentId, studentName) => {
                 if (!confirm(`هل تريد تصفير التعهدات للطالب ${studentName}؟`)) return;
+                await ensureAuth();
                 try {
                     await db.collection('students').doc(studentId).update({ pledges: 0 });
                     showToast("تم تصفير تعهدات الطالب");
@@ -700,6 +700,7 @@
 
             const handleResetHomework = async (studentId, studentName) => {
                 if (!confirm(`هل تريد تصفير عداد عدم تسليم الواجبات للطالب ${studentName}؟`)) return;
+                await ensureAuth();
                 try {
                     await db.collection('students').doc(studentId).update({ missedHomework: 0 });
                     showToast("تم تصفير واجبات الطالب");
@@ -711,6 +712,7 @@
             const handleAddTeacher = async (e) => {
                 e.preventDefault();
                 if (!newTeacher.name.trim()) return;
+                await ensureAuth();
                 try {
                     await db.collection('teachers').add({
                         name: newTeacher.name.trim(),
@@ -730,6 +732,7 @@
             };
 
             const handleUpdateTeacherPin = async (teacherId, pinVal) => {
+                await ensureAuth();
                 try {
                     await db.collection('teachers').doc(teacherId).update({
                         pin: String(pinVal).trim()
@@ -742,6 +745,7 @@
 
             const handleDeleteTeacher = async (id, name) => {
                 if (!confirm(`حذف المعلم ${name} نهائياً؟`)) return;
+                await ensureAuth();
                 try {
                     await db.collection('teachers').doc(id).delete();
                     showToast("تم حذف المعلم");
@@ -800,6 +804,7 @@
 
             const commitExcelImport = async () => {
                 if (!importPreview) return;
+                await ensureAuth();
                 try {
                     const batch = db.batch();
                     importPreview.forEach(s => {
@@ -963,6 +968,7 @@
             const handleAddManualStudent = async (e) => {
                 e.preventDefault();
                 if (!newStudent.name.trim()) return;
+                await ensureAuth();
 
                 try {
                     await db.collection('students').add({
@@ -986,6 +992,7 @@
 
             const handleSaveEdit = async (e) => {
                 e.preventDefault();
+                await ensureAuth();
                 try {
                     await db.collection('students').doc(editingStudent.id).update({
                         name: editingStudent.name.trim(),
@@ -1005,6 +1012,7 @@
 
             const deleteSingleStudent = async (id) => {
                 if (confirm("هل أنت متأكد من حذف هذا الطالب نهائياً من السحابة؟")) {
+                    await ensureAuth();
                     try {
                         await db.collection('students').doc(id).delete();
                         showToast("تم حذف الطالب");
@@ -1016,6 +1024,7 @@
 
             const deleteSelectedStudents = async () => {
                 if (!confirm(`حذف ${selectedSids.length} طالب محددين نهائياً؟`)) return;
+                await ensureAuth();
                 try {
                     const batch = db.batch();
                     selectedSids.forEach(id => batch.delete(db.collection('students').doc(id)));
@@ -1148,7 +1157,7 @@
                                 {loginLoading ? (
                                     <>
                                         <span className="w-5 h-5 border-2 border-white/30 border-t-white rounded-full animate-spin"></span>
-                                        <span>جاري التحقق الآمن...</span>
+                                        <span>جاري التحقق...</span>
                                     </>
                                 ) : (
                                     <span>تسجيل الدخول للمنصة</span>
