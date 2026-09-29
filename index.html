@@ -16,7 +16,6 @@
     
     <!-- Firebase SDK (Compat) -->
     <script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-app-compat.js"></script>
-    <script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-auth-compat.js"></script>
     <script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-firestore-compat.js"></script>
     
     <!-- XLSX with Styling Support -->
@@ -47,11 +46,7 @@
         if (!firebase.apps.length) {
             firebase.initializeApp(firebaseConfig);
         }
-        const auth = firebase.auth();
         const db = firebase.firestore();
-
-        // تثبيت الجلسة محلياً لعدم تسجيل الخروج تلقائياً
-        auth.setPersistence(firebase.auth.Auth.Persistence.LOCAL);
 
         const formatSaudiPhone = (input) => {
             if (!input) return '966500000000';
@@ -139,19 +134,18 @@
         };
 
         const App = () => {
-            const [currentUser, setCurrentUser] = useState(null);
-            const [role, setRole] = useState(null);
-            const [currentTeacher, setCurrentTeacher] = useState(null);
+            // استرجاع الجلسة المحفوظة تلقائياً من ذاكرة المتصفح
+            const [role, setRole] = useState(() => localStorage.getItem('itqan_role') || null);
+            const [currentTeacher, setCurrentTeacher] = useState(() => {
+                const saved = localStorage.getItem('itqan_teacher');
+                return saved ? JSON.parse(saved) : null;
+            });
             const [teacherTab, setTeacherTab] = useState('attendance');
             
-            const [email, setEmail] = useState('');
-            const [password, setPassword] = useState('');
-            const [showPassword, setShowPassword] = useState(false);
-            const [loginLoading, setLoginLoading] = useState(false);
-            const [authChecking, setAuthChecking] = useState(true);
-
             const [view, setView] = useState('inbox');
             const [inboxSubTab, setInboxSubTab] = useState('attendance');
+            const [pin, setPin] = useState('');
+            const [showPin, setShowPin] = useState(false);
             
             const [students, setStudents] = useState([]);
             const [teachers, setTeachers] = useState([]);
@@ -193,51 +187,13 @@
             const [pledgeReason, setPledgeReason] = useState('');
 
             const [showAddTeacherModal, setShowAddTeacherModal] = useState(false);
-            const [newTeacher, setNewTeacher] = useState({ name: '', phone: '', subject: '', pin: '', email: '' });
+            const [newTeacher, setNewTeacher] = useState({ name: '', phone: '', subject: '', pin: '' });
             const [teacherAttendanceBatch, setTeacherAttendanceBatch] = useState({});
 
             const showToast = (message, type = 'success') => setToast({ message, type });
 
-            // الاستماع لحالة تسجيل الدخول والحفاظ عليها
+            // جلب البيانات فوراً دون تعليق
             useEffect(() => {
-                const unsubscribe = auth.onAuthStateChanged(async (user) => {
-                    setCurrentUser(user);
-                    if (user && user.email) {
-                        const userEmail = user.email.toLowerCase().trim();
-                        if (userEmail === 'admin@itqan.local') {
-                            setRole('supervisor');
-                            setCurrentTeacher(null);
-                        } else if (userEmail === 'monitor@itqan.local') {
-                            setRole('monitor');
-                            setCurrentTeacher(null);
-                        } else {
-                            try {
-                                const teacherSnap = await db.collection('teachers').where('email', '==', userEmail).limit(1).get();
-                                if (!teacherSnap.empty) {
-                                    const tDoc = teacherSnap.docs[0];
-                                    setRole('teacher');
-                                    setCurrentTeacher({ id: tDoc.id, ...tDoc.data() });
-                                    setTeacherTab('attendance');
-                                } else {
-                                    setRole('supervisor');
-                                }
-                            } catch (e) {
-                                setRole('supervisor');
-                            }
-                        }
-                    } else {
-                        setRole(null);
-                        setCurrentTeacher(null);
-                    }
-                    setAuthChecking(false);
-                });
-                return () => unsubscribe();
-            }, []);
-
-            // جلب البيانات بعد التحقق من الجلسة
-            useEffect(() => {
-                if (!currentUser) return;
-
                 const unsubStudents = db.collection('students').onSnapshot(snap => {
                     setStudents(snap.docs.map(doc => ({ 
                         id: doc.id, 
@@ -251,7 +207,7 @@
                 });
 
                 const unsubTeachers = db.collection('teachers').onSnapshot(snap => {
-                    setTeachers(snap.docs.map(doc => ({ id: doc.id, presentCount: 0, absentCount: 0, excusedCount: 0, pin: '', email: '', ...doc.data() })));
+                    setTeachers(snap.docs.map(doc => ({ id: doc.id, presentCount: 0, absentCount: 0, excusedCount: 0, pin: '', ...doc.data() })));
                 });
 
                 const unsubLogs = db.collection('attendance_logs').orderBy('date', 'desc').onSnapshot(snap => {
@@ -283,7 +239,7 @@
                     unsubPledges();
                     unsubSettings();
                 };
-            }, [currentUser]);
+            }, []);
 
             useEffect(() => {
                 const today = getTodayDateStr();
@@ -345,39 +301,48 @@
                 return [...teachers].sort((a, b) => (a.name || '').localeCompare(b.name || '', 'ar'));
             }, [teachers]);
 
-            const handleLogin = async (e) => {
-                if (e) e.preventDefault();
-                const trimmedEmail = email.trim();
-                const trimmedPass = password.trim();
+            // تسجيل دخول فوري بالـ PIN مع حفظ الجلسة في المتصفح لعدم الخروج
+            const handleLogin = () => {
+                const trimmedPin = pin.trim();
+                if (!trimmedPin) return;
 
-                if (!trimmedEmail || !trimmedPass) {
-                    showToast('يرجى إدخال البريد وكلمة المرور', 'error');
-                    return;
-                }
-
-                setLoginLoading(true);
-                try {
-                    await auth.signInWithEmailAndPassword(trimmedEmail, trimmedPass);
-                    showToast('تم تسجيل الدخول بنجاح ✓');
-                    setEmail('');
-                    setPassword('');
-                } catch (err) {
-                    let errMsg = 'بيانات الدخول غير صحيحة، يرجى التأكد والمحاولة مجدداً';
-                    if (err.code === 'auth/user-not-found' || err.code === 'auth/wrong-password') {
-                        errMsg = 'البريد أو كلمة المرور غير متطابقين';
-                    } else if (err.code === 'auth/too-many-requests') {
-                        errMsg = 'تم حظر المحاولات مؤقتاً لكثرة التجارب الخاطئة';
+                if (trimmedPin === '1234') {
+                    setRole('supervisor');
+                    setCurrentTeacher(null);
+                    localStorage.setItem('itqan_role', 'supervisor');
+                    localStorage.removeItem('itqan_teacher');
+                    showToast('تم تسجيل الدخول كمشرف عام');
+                } else if (trimmedPin === '0000') {
+                    setRole('monitor');
+                    setCurrentTeacher(null);
+                    localStorage.setItem('itqan_role', 'monitor');
+                    localStorage.removeItem('itqan_teacher');
+                    showToast('تم تسجيل الدخول كمسجل عام');
+                } else {
+                    const matchedTeacher = teachers.find(t => t.pin && String(t.pin).trim() === trimmedPin);
+                    if (matchedTeacher) {
+                        setRole('teacher');
+                        setCurrentTeacher(matchedTeacher);
+                        setTeacherTab('attendance');
+                        localStorage.setItem('itqan_role', 'teacher');
+                        localStorage.setItem('itqan_teacher', JSON.stringify(matchedTeacher));
+                        showToast(`مرحباً بالأستاذ ${matchedTeacher.name}`);
+                    } else {
+                        showToast('رمز الدخول غير صحيح، يرجى المحاولة مرة أخرى', 'error');
                     }
-                    showToast(errMsg, 'error');
-                } finally {
-                    setLoginLoading(false);
                 }
+
+                setPin('');
+                setShowPin(false);
             };
 
-            const logout = async () => {
-                await auth.signOut();
+            const logout = () => {
+                localStorage.removeItem('itqan_role');
+                localStorage.removeItem('itqan_teacher');
                 setRole(null);
                 setCurrentTeacher(null);
+                setPin('');
+                setShowPin(false);
                 setActiveMonitorGroup(null);
                 setIsMonitoringTeachers(false);
                 setAttendanceBatch({});
@@ -732,12 +697,11 @@
                         phone: formatSaudiPhone(newTeacher.phone),
                         subject: newTeacher.subject.trim() || 'عام',
                         pin: String(newTeacher.pin || '').trim(),
-                        email: String(newTeacher.email || '').trim().toLowerCase(),
                         presentCount: 0,
                         absentCount: 0,
                         excusedCount: 0
                     });
-                    setNewTeacher({ name: '', phone: '', subject: '', pin: '', email: '' });
+                    setNewTeacher({ name: '', phone: '', subject: '', pin: '' });
                     setShowAddTeacherModal(false);
                     showToast("تمت إضافة المعلم بنجاح");
                 } catch (err) {
@@ -1124,18 +1088,7 @@
                 return calculatePassStats(teacherStudents, selectedExamType);
             }, [teacherStudents, selectedExamType]);
 
-            if (authChecking) {
-                return (
-                    <div className="min-h-screen flex items-center justify-center bg-slate-900 text-white font-bold text-lg">
-                        <div className="flex flex-col items-center gap-4">
-                            <span className="w-10 h-10 border-4 border-emerald-500 border-t-transparent rounded-full animate-spin"></span>
-                            <span>جاري التحقق من الجلسة السحابية...</span>
-                        </div>
-                    </div>
-                );
-            }
-
-            if (!currentUser || !role) {
+            if (!role) {
                 return (
                     <div className="min-h-screen flex items-center justify-center p-4 bg-gradient-to-br from-slate-900 via-slate-950 to-emerald-950">
                         <div className="max-w-md w-full bg-white/95 backdrop-blur-xl rounded-[2.5rem] shadow-2xl p-8 sm:p-10 space-y-6 text-center border border-white/20">
@@ -1144,66 +1097,37 @@
                             </div>
                             <div className="space-y-1">
                                 <h1 className="text-3xl font-extrabold text-slate-800 tracking-tight">منصة إتقان السحابية</h1>
-                                <p className="text-slate-500 text-xs font-medium">نظام الإدارة والتحضير السحابي الموثق</p>
+                                <p className="text-slate-500 text-xs font-medium">نظام الإدارة والتحضير السحابي الموحد</p>
                             </div>
                             
-                            <form onSubmit={handleLogin} className="space-y-4 pt-2 text-right">
-                                <div>
-                                    <label className="block text-xs font-bold text-slate-700 mb-1">البريد الإلكتروني (أو المعرّف)</label>
+                            <div className="space-y-4 pt-2">
+                                <div className="relative">
                                     <input 
-                                        type="text" 
-                                        dir="ltr"
-                                        placeholder="admin@itqan.local" 
-                                        disabled={loginLoading}
-                                        className="w-full p-3.5 bg-slate-50 border-2 border-slate-200 rounded-2xl text-left text-sm outline-none focus:border-emerald-600 focus:bg-white transition-all shadow-inner disabled:opacity-50"
-                                        value={email}
-                                        onChange={e => setEmail(e.target.value)}
-                                        required
+                                        type={showPin ? "text" : "password"} 
+                                        placeholder="أدخل رمز الدخول (PIN)" 
+                                        className="w-full p-4 pl-12 bg-slate-50 border-2 border-slate-200 rounded-2xl text-center text-2xl tracking-widest outline-none focus:border-emerald-600 focus:bg-white transition-all font-mono shadow-inner"
+                                        value={pin}
+                                        onChange={e => setPin(e.target.value)}
+                                        onKeyDown={e => e.key === 'Enter' && handleLogin()}
                                     />
-                                </div>
-
-                                <div>
-                                    <label className="block text-xs font-bold text-slate-700 mb-1">كلمة المرور</label>
-                                    <div className="relative">
-                                        <input 
-                                            type={showPassword ? "text" : "password"} 
-                                            dir="ltr"
-                                            placeholder="••••••••" 
-                                            disabled={loginLoading}
-                                            className="w-full p-3.5 pl-12 bg-slate-50 border-2 border-slate-200 rounded-2xl text-left text-sm outline-none focus:border-emerald-600 focus:bg-white transition-all shadow-inner disabled:opacity-50"
-                                            value={password}
-                                            onChange={e => setPassword(e.target.value)}
-                                            required
-                                        />
-                                        <button
-                                            type="button"
-                                            onClick={() => setShowPassword(!showPassword)}
-                                            className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400 hover:text-emerald-700 text-base focus:outline-none transition-all p-1"
-                                        >
-                                            {showPassword ? "👁️" : "🔒"}
-                                        </button>
-                                    </div>
+                                    <button
+                                        type="button"
+                                        onClick={() => setShowPin(!showPin)}
+                                        className="absolute left-4 top-1/2 -translate-y-1/2 text-slate-400 hover:text-emerald-700 text-xl focus:outline-none transition-all p-1"
+                                    >
+                                        {showPin ? "👁️" : "🔒"}
+                                    </button>
                                 </div>
 
                                 <button 
-                                    type="submit"
-                                    disabled={loginLoading}
-                                    className="w-full mt-2 bg-gradient-to-r from-emerald-700 to-teal-700 hover:from-emerald-800 hover:to-teal-800 text-white p-4 rounded-2xl font-bold text-base shadow-lg shadow-emerald-900/20 active:scale-[0.98] transition-all disabled:opacity-50 flex items-center justify-center gap-2"
+                                    onClick={handleLogin} 
+                                    className="w-full bg-gradient-to-r from-emerald-700 to-teal-700 hover:from-emerald-800 hover:to-teal-800 text-white p-4 rounded-2xl font-bold text-lg shadow-lg shadow-emerald-900/20 active:scale-[0.98] transition-all"
                                 >
-                                    {loginLoading ? (
-                                        <>
-                                            <span className="w-5 h-5 border-2 border-white/30 border-t-white rounded-full animate-spin"></span>
-                                            <span>جاري التوثيق السحابي...</span>
-                                        </>
-                                    ) : (
-                                        <span>تسجيل الدخول الآمن</span>
-                                    )}
+                                    دخول فوري للمنصة
                                 </button>
-                            </form>
-
-                            <div className="flex items-center justify-center gap-1.5 text-[11px] text-emerald-800 font-bold bg-emerald-50 py-1.5 px-3 rounded-full border border-emerald-200/60 w-fit mx-auto">
-                                <span>🔒</span>
-                                <span>جلسة دائمة ومحمية عبر Firebase Auth</span>
+                            </div>
+                            <div className="text-[11px] text-slate-400 font-bold">
+                                المشرف: 1234 | المسجل: 0000 | المعلم: رمزه الخاص
                             </div>
                         </div>
                     </div>
@@ -1221,12 +1145,9 @@
                                 {role === 'supervisor' ? 'لوحة تحكم المشرف العام' : role === 'monitor' ? 'بوابة الرصد والتحضير (المسجل)' : `بوابة المعلم: ${currentTeacher?.name || ''}`}
                             </span>
                         </div>
-                        <div className="flex items-center gap-3">
-                            <span className="text-[11px] text-slate-400 font-mono hidden sm:inline" dir="ltr">{currentUser.email}</span>
-                            <button onClick={logout} className="text-xs font-bold text-rose-600 bg-rose-50 hover:bg-rose-100 border border-rose-200 px-3.5 py-2 rounded-xl transition-all">
-                                تسجيل الخروج ✕
-                            </button>
-                        </div>
+                        <button onClick={logout} className="text-xs font-bold text-rose-600 bg-rose-50 hover:bg-rose-100 border border-rose-200 px-3.5 py-2 rounded-xl transition-all">
+                            تسجيل الخروج ✕
+                        </button>
                     </header>
 
                     <main className="p-4 md:p-6">
@@ -1243,7 +1164,7 @@
                                     </div>
                                     <div className="flex gap-2">
                                         <span className="bg-emerald-50 text-emerald-700 border border-emerald-200 px-3.5 py-1.5 rounded-xl text-xs font-bold flex items-center gap-1 shadow-sm">
-                                            ✓ جلسة موثقة وآمنة
+                                            ✓ جلسة متصلة ومحفوظة
                                         </span>
                                     </div>
                                 </div>
@@ -2297,8 +2218,8 @@
                                     <div className="space-y-6">
                                         <div className="bg-white p-5 rounded-3xl border border-slate-200/80 shadow-sm flex flex-wrap justify-between items-center gap-4">
                                             <div>
-                                                <h3 className="font-bold text-slate-800 text-lg">سجل المعلمين وتخصيص الحسابات</h3>
-                                                <p className="text-xs text-slate-400 mt-1">عيّن بريد المعلم المسجل في Firebase Auth ليتمكن من الدخول لحلقته فقط</p>
+                                                <h3 className="font-bold text-slate-800 text-lg">سجل المعلمين وتخصيص رموز الدخول (PIN)</h3>
+                                                <p className="text-xs text-slate-400 mt-1">عيّن رمز دخول لكل معلم ليتمكن من الدخول لحلقته ورصد درجاتها فقط</p>
                                             </div>
                                             <button onClick={() => setShowAddTeacherModal(true)} className="bg-emerald-700 hover:bg-emerald-800 text-white px-4 py-2 rounded-xl text-xs font-bold transition-all shadow-sm">+ إضافة معلم جديد</button>
                                         </div>
@@ -2309,8 +2230,8 @@
                                                     <thead className="bg-slate-50 text-slate-500 text-xs">
                                                         <tr>
                                                             <th className="p-4 font-bold">اسم المعلم</th>
-                                                            <th className="p-4 font-bold">الحلقة المسؤول عنها</th>
-                                                            <th className="p-4 font-bold text-emerald-800">البريد الإلكتروني الموثق</th>
+                                                            <th className="p-4 font-bold">اسم الحلقة المسؤول عنها</th>
+                                                            <th className="p-4 font-bold text-emerald-800">رمز الدخول (PIN)</th>
                                                             <th className="p-4 font-bold text-emerald-600">أيام الحضور</th>
                                                             <th className="p-4 font-bold text-rose-600">أيام الغياب</th>
                                                             <th className="p-4 font-bold text-amber-600">أيام الاستئذان</th>
@@ -2323,14 +2244,16 @@
                                                                 <td className="p-4 font-bold text-slate-800">{t.name}</td>
                                                                 <td className="p-4 text-slate-600 font-bold bg-slate-50/50">{t.subject}</td>
                                                                 <td className="p-4">
-                                                                    <input 
-                                                                        type="text" 
-                                                                        dir="ltr"
-                                                                        defaultValue={t.email || ''} 
-                                                                        placeholder="teacher@itqan.local" 
-                                                                        className="w-48 p-1.5 border rounded-lg text-left font-mono font-bold text-xs bg-white focus:border-emerald-600 outline-none"
-                                                                        onBlur={(e) => db.collection('teachers').doc(t.id).update({ email: e.target.value.trim().toLowerCase() })}
-                                                                    />
+                                                                    <div className="flex items-center gap-1">
+                                                                        <input 
+                                                                            type="text" 
+                                                                            defaultValue={t.pin || ''} 
+                                                                            placeholder="PIN" 
+                                                                            className="w-20 p-1.5 border rounded-lg text-center font-mono font-bold text-xs bg-white focus:border-emerald-600 outline-none"
+                                                                            onBlur={(e) => handleUpdateTeacherPin(t.id, e.target.value)}
+                                                                        />
+                                                                        <span className="text-[10px] text-slate-400">حفظ تلقائي</span>
+                                                                    </div>
                                                                 </td>
                                                                 <td className="p-4 font-extrabold text-emerald-600">{t.presentCount || 0} يوم</td>
                                                                 <td className="p-4 font-extrabold text-rose-600">{t.absentCount || 0} يوم</td>
@@ -2414,8 +2337,8 @@
                                 <input placeholder="رقم الجوال (اختياري)" className="w-full p-3 bg-slate-50 border rounded-xl outline-none focus:border-emerald-600" dir="ltr" value={newTeacher.phone} onChange={e => setNewTeacher({...newTeacher, phone: e.target.value})} />
                                 <input required placeholder="اسم الحلقة المسؤول عنها بدقة (نفس اسم حلقة الطلاب)" className="w-full p-3 bg-slate-50 border rounded-xl font-bold outline-none focus:border-emerald-600" value={newTeacher.subject} onChange={e => setNewTeacher({...newTeacher, subject: e.target.value})} />
                                 <div>
-                                    <label className="block text-xs font-bold text-slate-600 mb-1">البريد الإلكتروني المخصص للدخول:</label>
-                                    <input placeholder="teacher@itqan.local" dir="ltr" className="w-full p-3 bg-slate-50 border rounded-xl font-mono text-sm outline-none focus:border-emerald-600" value={newTeacher.email} onChange={e => setNewTeacher({...newTeacher, email: e.target.value})} />
+                                    <label className="block text-xs font-bold text-slate-600 mb-1">رمز الدخول الخاص بالمعلم (PIN):</label>
+                                    <input required placeholder="مثال: 5566" className="w-full p-3 bg-slate-50 border rounded-xl font-mono text-center tracking-widest outline-none focus:border-emerald-600" value={newTeacher.pin} onChange={e => setNewTeacher({...newTeacher, pin: e.target.value})} />
                                 </div>
                                 <div className="flex gap-2 pt-2">
                                     <button type="submit" className="flex-1 bg-emerald-700 hover:bg-emerald-800 text-white font-bold py-3 rounded-xl transition-all">حفظ المعلم</button>
