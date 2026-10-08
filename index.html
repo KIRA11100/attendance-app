@@ -177,7 +177,7 @@
             const [filterGroup, setFilterGroup] = useState('ALL');
             const [filterAbsence, setFilterAbsence] = useState('ALL');
             const [filterHomework, setFilterHomework] = useState('ALL');
-            const [filterStatus, setFilterStatus] = useState('ALL'); // فلتر حالة القيد (نشط / منقطع)
+            const [filterStatus, setFilterStatus] = useState('ALL'); 
             const [search, setSearch] = useState('');
             const fileInputRef = useRef(null);
 
@@ -1869,6 +1869,14 @@
                                                         {filteredStudents.map(s => {
                                                             const hwAlert = getHomeworkAlert(s.missedHomework || 0);
 
+                                                            // رسالة المستمع داخل جدول الطلاب
+                                                            let listenerMsg = "";
+                                                            if (s.absences >= 7) {
+                                                                listenerMsg = settings.listener_template.replace(/{student_name}/g, s.name).replace(/{reason}/g, `بلوغ الغياب ${s.absences} أيام وتجاوز الحد الأعلى`);
+                                                            } else if (s.missedHomework >= 15) {
+                                                                listenerMsg = settings.listener_template.replace(/{student_name}/g, s.name).replace(/{reason}/g, `تجاوز الحد الأعلى لعدم تسليم الواجبات (${s.missedHomework} واجباً)`);
+                                                            }
+
                                                             return (
                                                                 <tr key={s.id} className="hover:bg-slate-50/80 transition-colors">
                                                                     <td className="p-4">
@@ -1904,7 +1912,10 @@
                                                                         </span>
                                                                     </td>
                                                                     <td className="p-4 text-center">
-                                                                        <div className="flex justify-center gap-1.5">
+                                                                        <div className="flex justify-center gap-1.5 flex-wrap">
+                                                                            {listenerMsg && (
+                                                                                <a href={`https://wa.me/${s.phone}?text=${encodeURIComponent(listenerMsg)}`} target="_blank" className="bg-purple-700 hover:bg-purple-800 text-white px-2.5 py-1 rounded-xl font-bold text-xs shadow-sm w-full mb-1">إشعار صفة مستمع 📢</a>
+                                                                            )}
                                                                             <button onClick={() => setEditingStudent({...s})} className="bg-slate-100 text-slate-700 hover:bg-slate-200 px-2.5 py-1 rounded-xl font-bold text-xs">تعديل ✏️</button>
                                                                             <button onClick={() => deleteSingleStudent(s.id)} className="bg-rose-50 text-rose-600 hover:bg-rose-100 px-2.5 py-1 rounded-xl font-bold text-xs">حذف 🗑️</button>
                                                                         </div>
