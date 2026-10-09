@@ -586,7 +586,13 @@
                                                         ))}
                                                     </div>
                                                 </div>
-                                                <textarea placeholder="ملاحظات المعلم وتوجيهاته حول التسميع..." className="w-full p-2.5 bg-slate-50 border rounded-xl text-xs outline-none focus:bg-white focus:border-emerald-700" defaultValue={s.examNotes?.[selExType]} onBlur={e => db.collection('students').doc(s.id).update({[`examNotes.${selExType}`]: e.target.value})} />
+                                                <textarea 
+                                                    key={`${s.id}_${selExType}`}
+                                                    placeholder="ملاحظات المعلم وتوجيهاته حول التسميع..." 
+                                                    className="w-full p-2.5 bg-slate-50 border rounded-xl text-xs outline-none focus:bg-white focus:border-emerald-700" 
+                                                    defaultValue={s.examNotes?.[selExType] || ''} 
+                                                    onBlur={e => db.collection('students').doc(s.id).update({[`examNotes.${selExType}`]: e.target.value})} 
+                                                />
                                             </div>
                                         ))}
                                     </div>
@@ -950,37 +956,4 @@
                                 <h3 className="text-xl font-bold border-b pb-2 text-purple-900">تسجيل تعهد تأديبي</h3>
                                 <p className="text-sm font-bold text-slate-700">{showPledge.name} - {showPledge.group}</p>
                                 <textarea required placeholder="اكتب سبب التعهد بالتفصيل..." className="w-full p-3.5 bg-slate-50 border rounded-2xl h-28 outline-none focus:border-purple-600 text-xs" value={pReason} onChange={e => setPReason(e.target.value)} />
-                                <div className="flex gap-2">
-                                    <button type="submit" className="flex-1 bg-purple-800 text-white py-3 rounded-2xl font-bold">تأكيد التعهد</button>
-                                    <button type="button" onClick={() => setShowPledge(null)} className="px-6 bg-slate-100 rounded-2xl font-bold text-slate-600">إلغاء</button>
-                                </div>
-                            </form>
-                        </div>
-                    )}
-
-                    {showAddTchr && (
-                        <div className="fixed inset-0 z-[60] flex items-center justify-center p-4 modal-overlay">
-                            <form onSubmit={async e => {
-                                e.preventDefault();
-                                await db.collection('teachers').add({...newTchr, presentCount:0, absentCount:0, excusedCount:0});
-                                setShowAddTchr(false); setNewTchr({name:'', phone:'', subject:'', pin:''}); toastMsg("تمت إضافة المعلم بنجاح");
-                            }} className="bg-white w-full max-w-md rounded-3xl p-8 space-y-4 shadow-2xl animate-in card-gold-border">
-                                <h3 className="text-xl font-bold border-b pb-3 text-emerald-950 font-quran">إضافة معلم وتعيين حسابه</h3>
-                                <input required placeholder="اسم المعلم" className="w-full p-3.5 bg-slate-50 border rounded-2xl outline-none text-sm" value={newTchr.name} onChange={e => setNewTchr({...newTchr, name:e.target.value})} />
-                                <input required placeholder="اسم الحلقة المسؤول عنها" className="w-full p-3.5 bg-slate-50 border rounded-2xl outline-none text-sm" value={newTchr.subject} onChange={e => setNewTchr({...newTchr, subject:e.target.value})} />
-                                <input required placeholder="رمز الدخول (PIN)" className="w-full p-3.5 bg-slate-50 border rounded-2xl text-center text-xl font-mono tracking-widest outline-none" value={newTchr.pin} onChange={e => setNewTchr({...newTchr, pin:e.target.value})} />
-                                <div className="flex gap-2 pt-3">
-                                    <button type="submit" className="flex-1 bg-emerald-800 text-amber-200 py-3.5 rounded-2xl font-bold shadow-lg">حفظ المعلم</button>
-                                    <button type="button" onClick={() => setShowAddTchr(false)} className="px-6 bg-slate-100 rounded-2xl font-bold text-slate-600">إلغاء</button>
-                                </div>
-                            </form>
-                        </div>
-                    )}
-                </div>
-            );
-        };
-
-        ReactDOM.createRoot(document.getElementById('root')).render(<App />);
-    </script>
-</body>
-</html>
+                                <div className="flex
