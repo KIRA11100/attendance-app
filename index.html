@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>منصة إتقان - الحلقات القرآنية</title>
+    <title>منصة إتقان للرصد فقط</title>
     
     <!-- الخطوط الرسمية -->
     <link href="https://fonts.googleapis.com/css2?family=Tajawal:wght@400;500;700;800;900&family=Amiri:wght@700&display=swap" rel="stylesheet">
@@ -135,11 +135,11 @@
             const [pledgeLogs, setPledgeLogs] = useState([]);
             const [teacherLogs, setTeacherLogs] = useState([]);
             const [settings, setSettings] = useState({
-                absence_template: "عزيزي ولي أمر الطالب {student_name}، نفيدكم بغيابه اليوم {date}. إجمالي الغيابات: {absence_count}",
+                absence_template: "عزيزي ولي أمر الطالب {student_name}، نفيدكم بغيابه اليوم {date}. إجمالي غياباته: {absence_count}",
                 excused_template: "عزيزي ولي أمر الطالب {student_name}، تم تسجيل استئذان الطالب اليوم {date} بعذر مقبول.",
                 homework_template: "عزيزي ولي أمر الطالب {student_name}، لم يتم تسليم الواجب اليوم {date}. التكرار: {missed_count} ({alert_status}).",
                 listener_template: "المكرم ولي أمر الطالب {student_name}، نظراً لتجاوز الغياب/التقصير في الحلقات، تقرر تحويل صفة قيده إلى (مستمع).",
-                formative_exam_template: "نتيجة الطالب {student_name} في ({exam_name}): التقدير [{grade}]. {notes}",
+                formative_exam_template: "نتيجة الطالب {student_name} في ({exam_name}): التقدير هو [{grade}]. {notes}",
                 final_exam_template: "نتيجة الطالب {student_name} في (الاختبار النهائي): التقدير [{grade}]. {notes}"
             });
             const [toast, setToast] = useState(null);
@@ -394,7 +394,7 @@
                             </div>
                             <div className="space-y-1">
                                 <h1 className="text-3xl font-extrabold text-emerald-950 font-quran tracking-wide">مَجْمَعُ إِتْقَانَ القُرْآنِيّ</h1>
-                                <p className="text-amber-800 text-xs font-bold">بوابة الإدارة والمتابعة السحابية الشاملة</p>
+                                <p className="text-amber-800 text-xs font-bold">منصة إتقان للرصد فقط</p>
                             </div>
                             <div className="space-y-4">
                                 <div className="relative">
@@ -414,9 +414,6 @@
                                     دخول للمنصة
                                 </button>
                             </div>
-                            <div className="text-[11px] text-slate-400 font-bold border-t pt-4">
-                                المشرف: 1234 | المسجل: 0000 | المعلم: رمزه الخاص
-                            </div>
                         </div>
                     </div>
                 );
@@ -433,7 +430,7 @@
                                 إتقان
                             </span>
                             <div className="hidden md:block">
-                                <span className="font-extrabold text-emerald-950 text-sm block">منصة الحلقات القرآنية</span>
+                                <span className="font-extrabold text-emerald-950 text-sm block">منصة إتقان للرصد فقط</span>
                                 <span className="text-[10px] text-amber-800 font-bold">
                                     {role === 'supervisor' ? 'لوحة تحكم المشرف العام' : role === 'monitor' ? 'بوابة المسجل العام' : `المعلم: ${teacherData?.name}`}
                                 </span>
