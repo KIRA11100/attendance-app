@@ -308,13 +308,13 @@
                 if (trimmedPin === '1234') {
                     setRole('supervisor');
                     setCurrentTeacher(null);
-                    localStorage.setItem('itqan_role', 'supervisor');
+                    localStorage.setItem('itqan_role_v2', 'supervisor');
                     localStorage.removeItem('itqan_teacher');
                     showToast('تم تسجيل الدخول كمشرف عام');
                 } else if (trimmedPin === '0000') {
                     setRole('monitor');
                     setCurrentTeacher(null);
-                    localStorage.setItem('itqan_role', 'monitor');
+                    localStorage.setItem('itqan_role_v2', 'monitor');
                     localStorage.removeItem('itqan_teacher');
                     showToast('تم تسجيل الدخول كمسجل عام');
                 } else {
