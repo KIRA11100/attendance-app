@@ -323,7 +323,7 @@
                         setRole('teacher');
                         setCurrentTeacher(matchedTeacher);
                         setTeacherTab('attendance');
-                        localStorage.setItem('itqan_role', 'teacher');
+                        localStorage.setItem('itqan_role_v2', 'teacher');
                         localStorage.setItem('itqan_teacher', JSON.stringify(matchedTeacher));
                         showToast(`مرحباً بالأستاذ ${matchedTeacher.name}`);
                     } else {
@@ -336,7 +336,7 @@
             };
 
             const logout = () => {
-                localStorage.removeItem('itqan_role');
+                localStorage.removeItem('itqan_role_v2');
                 localStorage.removeItem('itqan_teacher');
                 setRole(null);
                 setCurrentTeacher(null);
