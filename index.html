@@ -134,7 +134,7 @@
         };
 
         const App = () => {
-            const [role, setRole] = useState(() => localStorage.getItem('itqan_role') || null);
+            const [role, setRole] = useState(() => localStorage.getItem('itqan_role_v2') || null);
             const [currentTeacher, setCurrentTeacher] = useState(() => {
                 const saved = localStorage.getItem('itqan_teacher');
                 return saved ? JSON.parse(saved) : null;
