@@ -1,11 +1,9 @@
-
-```html
 <!DOCTYPE html>
 <html lang="ar" dir="rtl">
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>منصة إتقان للرصد فقط</title>
+    <title>نظام إتقان - الإدارة السحابية الشاملة</title>
     
     <!-- Fonts -->
     <link href="https://fonts.googleapis.com/css2?family=Tajawal:wght@400;500;700;800&display=swap" rel="stylesheet">
@@ -49,37 +47,6 @@
             firebase.initializeApp(firebaseConfig);
         }
         const db = firebase.firestore();
-
-        // --- Device Management Helpers ---
-        const getDeviceId = () => {
-            let id = localStorage.getItem('itqan_deviceId');
-            if (!id) {
-                id = 'dev_' + Math.random().toString(36).substr(2, 9) + Date.now().toString(36);
-                localStorage.setItem('itqan_deviceId', id);
-            }
-            return id;
-        };
-
-        const getDeviceOSDetails = () => {
-            const ua = navigator.userAgent;
-            if (/android/i.test(ua)) return "Android Device";
-            if (/iPad|iPhone|iPod/.test(ua)) return "iOS Device (iPhone/iPad)";
-            if (/Windows/i.test(ua)) return "Windows PC";
-            if (/Mac/i.test(ua)) return "MacBook/Mac";
-            if (/Linux/i.test(ua)) return "Linux System";
-            return "متصفح ويب";
-        };
-
-        const fetchLocation = async () => {
-            try {
-                const response = await fetch('https://ipapi.co/json/');
-                const data = await response.json();
-                return `${data.city || 'غير محدد'} - ${data.region || 'السعودية'}`;
-            } catch (e) {
-                return "موقع غير محدد - السعودية (تقريبي)";
-            }
-        };
-        // ---------------------------------
 
         const formatSaudiPhone = (input) => {
             if (!input) return '966500000000';
@@ -179,9 +146,6 @@
             const [pin, setPin] = useState('');
             const [showPin, setShowPin] = useState(false);
             
-            const [isBlocked, setIsBlocked] = useState(false);
-            const [activeDevices, setActiveDevices] = useState([]);
-
             const [students, setStudents] = useState([]);
             const [teachers, setTeachers] = useState([]);
             const [logs, setLogs] = useState([]);
@@ -213,7 +177,7 @@
             const [filterGroup, setFilterGroup] = useState('ALL');
             const [filterAbsence, setFilterAbsence] = useState('ALL');
             const [filterHomework, setFilterHomework] = useState('ALL');
-            const [filterStatus, setFilterStatus] = useState('ALL');
+            const [filterStatus, setFilterStatus] = useState('ALL'); // فلتر حالة القيد (نشط / منقطع)
             const [search, setSearch] = useState('');
             const fileInputRef = useRef(null);
 
@@ -228,26 +192,6 @@
             const [teacherAttendanceBatch, setTeacherAttendanceBatch] = useState({});
 
             const showToast = (message, type = 'success') => setToast({ message, type });
-
-            // --- Device Real-time Watcher ---
-            useEffect(() => {
-                const deviceId = getDeviceId();
-                const unsubDevice = db.collection('active_devices').doc(deviceId).onSnapshot(doc => {
-                    if (doc.exists) {
-                        const devData = doc.data();
-                        if (devData.status === 'blocked') {
-                            setIsBlocked(true);
-                            logoutSilently();
-                        } else if (devData.status === 'kicked') {
-                            logoutSilently();
-                            showToast("تم إنهاء جلستك من قِبل المشرف", "error");
-                        } else if (devData.status === 'active') {
-                            setIsBlocked(false);
-                        }
-                    }
-                });
-                return () => unsubDevice();
-            }, []);
 
             useEffect(() => {
                 const unsubStudents = db.collection('students').onSnapshot(snap => {
@@ -282,10 +226,6 @@
                     setPledgeLogs(snap.docs.map(doc => ({ id: doc.id, ...doc.data() })));
                 });
 
-                const unsubDevices = db.collection('active_devices').orderBy('lastLogin', 'desc').onSnapshot(snap => {
-                    setActiveDevices(snap.docs.map(doc => ({ id: doc.id, ...doc.data() })));
-                });
-
                 const unsubSettings = db.collection('settings').doc('app_config').onSnapshot(doc => {
                     if (doc.exists) setSettings(prev => ({ ...prev, ...doc.data() }));
                 });
@@ -297,7 +237,6 @@
                     unsubHwLogs();
                     unsubTeacherLogs();
                     unsubPledges();
-                    unsubDevices();
                     unsubSettings();
                 };
             }, []);
@@ -362,72 +301,47 @@
                 return [...teachers].sort((a, b) => (a.name || '').localeCompare(b.name || '', 'ar'));
             }, [teachers]);
 
-            const handleLogin = async () => {
-                if (isBlocked) return;
+            const handleLogin = () => {
                 const trimmedPin = pin.trim();
                 if (!trimmedPin) return;
 
-                let finalRole = null;
-                let teacherObj = null;
-
                 if (trimmedPin === '1234') {
-                    finalRole = 'supervisor';
+                    setRole('supervisor');
+                    setCurrentTeacher(null);
+                    localStorage.setItem('itqan_role', 'supervisor');
+                    localStorage.removeItem('itqan_teacher');
                     showToast('تم تسجيل الدخول كمشرف عام');
                 } else if (trimmedPin === '0000') {
-                    finalRole = 'monitor';
+                    setRole('monitor');
+                    setCurrentTeacher(null);
+                    localStorage.setItem('itqan_role', 'monitor');
+                    localStorage.removeItem('itqan_teacher');
                     showToast('تم تسجيل الدخول كمسجل عام');
                 } else {
                     const matchedTeacher = teachers.find(t => t.pin && String(t.pin).trim() === trimmedPin);
                     if (matchedTeacher) {
-                        finalRole = 'teacher';
-                        teacherObj = matchedTeacher;
+                        setRole('teacher');
+                        setCurrentTeacher(matchedTeacher);
+                        setTeacherTab('attendance');
+                        localStorage.setItem('itqan_role', 'teacher');
+                        localStorage.setItem('itqan_teacher', JSON.stringify(matchedTeacher));
                         showToast(`مرحباً بالأستاذ ${matchedTeacher.name}`);
                     } else {
                         showToast('رمز الدخول غير صحيح، يرجى المحاولة مرة أخرى', 'error');
-                        return;
                     }
-                }
-
-                // Device Registration
-                const deviceId = getDeviceId();
-                try {
-                    const currentStatusDoc = await db.collection('active_devices').doc(deviceId).get();
-                    if (currentStatusDoc.exists && currentStatusDoc.data().status === 'blocked') {
-                        setIsBlocked(true);
-                        showToast("هذا الجهاز محظور من الدخول للمنصة", "error");
-                        return;
-                    }
-
-                    const locationData = await fetchLocation();
-                    await db.collection('active_devices').doc(deviceId).set({
-                        deviceId: deviceId,
-                        role: teacherObj ? `المعلم: ${teacherObj.name}` : (finalRole === 'supervisor' ? 'المشرف العام' : 'المسجل العام'),
-                        deviceName: getDeviceOSDetails(),
-                        location: locationData,
-                        lastLogin: firebase.firestore.FieldValue.serverTimestamp(),
-                        status: 'active'
-                    });
-                } catch (err) {
-                    console.error("Device verification failed:", err);
-                }
-
-                setRole(finalRole);
-                setCurrentTeacher(teacherObj);
-                localStorage.setItem('itqan_role', finalRole);
-                if (teacherObj) {
-                    setTeacherTab('attendance');
-                    localStorage.setItem('itqan_teacher', JSON.stringify(teacherObj));
                 }
 
                 setPin('');
                 setShowPin(false);
             };
 
-            const logoutSilently = () => {
+            const logout = () => {
                 localStorage.removeItem('itqan_role');
                 localStorage.removeItem('itqan_teacher');
                 setRole(null);
                 setCurrentTeacher(null);
+                setPin('');
+                setShowPin(false);
                 setActiveMonitorGroup(null);
                 setIsMonitoringTeachers(false);
                 setAttendanceBatch({});
@@ -436,27 +350,7 @@
                 setShowAddModal(false);
                 setShowPledgeModal(null);
                 setShowAddTeacherModal(false);
-            };
-
-            const logout = async () => {
-                const deviceId = getDeviceId();
-                try {
-                    await db.collection('active_devices').doc(deviceId).update({ status: 'inactive' });
-                } catch(e) {}
-                
-                logoutSilently();
-                setPin('');
-                setShowPin(false);
                 showToast("تم تسجيل الخروج بنجاح");
-            };
-
-            const manageDevice = async (id, newStatus) => {
-                try {
-                    await db.collection('active_devices').doc(id).update({ status: newStatus });
-                    showToast(`تم ${newStatus === 'blocked' ? 'حظر' : newStatus === 'kicked' ? 'طرد' : 'تنشيط'} الجهاز بنجاح`);
-                } catch(err) {
-                    showToast("فشل تحديث حالة الجهاز", "error");
-                }
             };
 
             const handleStartGroup = (groupName) => {
@@ -1133,8 +1027,7 @@
                     
                     let matchAbsence = true;
                     const absCategory = getAbsenceCategory(s.absences);
-                    if (filterAbsence === 'ZERO') matchAbsence = (Number(s.absences) || 0) === 0;
-                    else if (filterAbsence === 'NORMAL') matchAbsence = absCategory === 'normal' && (Number(s.absences) || 0) > 0;
+                    if (filterAbsence === 'NORMAL') matchAbsence = absCategory === 'normal';
                     else if (filterAbsence === 'WARNING') matchAbsence = absCategory === 'warning';
                     else if (filterAbsence === 'DANGER') matchAbsence = absCategory === 'danger';
 
@@ -1198,18 +1091,6 @@
                 return calculatePassStats(teacherStudents, selectedExamType);
             }, [teacherStudents, selectedExamType]);
 
-            if (isBlocked) {
-                return (
-                    <div className="min-h-screen flex items-center justify-center p-6 bg-slate-900">
-                        <div className="max-w-md w-full bg-white p-10 rounded-[3rem] shadow-2xl text-center border-4 border-rose-600">
-                            <div className="text-7xl mb-6">🚫</div>
-                            <h1 className="text-3xl font-extrabold text-slate-900 mb-4">الجهاز محظور</h1>
-                            <p className="text-slate-600 font-bold leading-relaxed text-sm">نأسف، لقد تم حظر هذا الجهاز من الدخول للمنصة بواسطة المشرف العام لمخالفة أمنية.</p>
-                        </div>
-                    </div>
-                );
-            }
-
             if (!role) {
                 return (
                     <div className="min-h-screen flex items-center justify-center p-4 bg-gradient-to-br from-slate-900 via-slate-950 to-emerald-950">
@@ -1218,7 +1099,7 @@
                                 ✓
                             </div>
                             <div className="space-y-1">
-                                <h1 className="text-3xl font-extrabold text-slate-800 tracking-tight">منصة إتقان للرصد فقط</h1>
+                                <h1 className="text-3xl font-extrabold text-slate-800 tracking-tight">منصة إتقان السحابية</h1>
                                 <p className="text-slate-500 text-xs font-medium">نظام الإدارة والتحضير السحابي الموحد</p>
                             </div>
                             
@@ -1713,7 +1594,6 @@
                                         { id: 'homework_records', label: 'متابعة وتنبيهات الواجبات' },
                                         { id: 'pledges', label: `التعهدات (${pledgeLogs.length})` },
                                         { id: 'teachers', label: `سجل وإدارة المعلمين (${teachers.length})` },
-                                        { id: 'devices', label: 'الأجهزة والجلسات 📱' },
                                         { id: 'settings', label: 'قوالب الرسائل' }
                                     ].map(t => (
                                         <button 
@@ -1922,6 +1802,7 @@
                                                 {groups.map(g => <option key={g} value={g}>{g}</option>)}
                                             </select>
 
+                                            {/* فلتر حالة القيد الجديد */}
                                             <select value={filterStatus} onChange={e => setFilterStatus(e.target.value)} className="bg-emerald-50 text-emerald-900 border border-emerald-300 rounded-xl px-3 py-1.5 font-bold outline-none">
                                                 <option value="ALL">جميع حالات القيد (الكل)</option>
                                                 <option value="ACTIVE">الطلاب المستمرون فقط (نشط)</option>
@@ -1930,7 +1811,6 @@
 
                                             <select value={filterAbsence} onChange={e => setFilterAbsence(e.target.value)} className="bg-slate-50 border rounded-xl px-3 py-1.5 font-bold outline-none">
                                                 <option value="ALL">جميع حالات الغياب</option>
-                                                <option value="ZERO">بدون أي غياب (0 غياب) ⭐</option>
                                                 <option value="NORMAL">غياب طبيعي (أقل من 3)</option>
                                                 <option value="WARNING">تحذير أصفر (3 إلى 5 غيابات)</option>
                                                 <option value="DANGER">خطر أحمر (6 غيابات فأكثر)</option>
@@ -2430,69 +2310,6 @@
                                     </div>
                                 )}
 
-                                {view === 'devices' && (
-                                    <div className="space-y-6">
-                                        <div className="bg-amber-50 p-6 rounded-3xl border border-amber-200">
-                                            <h3 className="font-extrabold text-amber-900 text-lg">إدارة الأمان والتحكم بالأجهزة 📱</h3>
-                                            <p className="text-xs text-amber-700 mt-1">تتيح لك هذه اللوحة مراقبة جميع المتصفحات والأجهزة التي دخلت النظام مع إمكانية طرد أي جهاز أو حظره نهائياً.</p>
-                                        </div>
-                                        <div className="bg-white rounded-3xl border border-slate-200/80 shadow-sm overflow-hidden">
-                                            <div className="overflow-x-auto">
-                                                <table className="w-full text-right text-sm">
-                                                    <thead className="bg-slate-50 text-slate-500 text-[11px]">
-                                                        <tr>
-                                                            <th className="p-4 font-bold">تفاصيل الجهاز</th>
-                                                            <th className="p-4 font-bold">صلاحية الحساب</th>
-                                                            <th className="p-4 font-bold">الموقع التقريبي (IP)</th>
-                                                            <th className="p-4 font-bold">آخر ظهور وتسجيل</th>
-                                                            <th className="p-4 font-bold">حالة الاتصال</th>
-                                                            <th className="p-4 font-bold text-center">الإجراءات الأمنية</th>
-                                                        </tr>
-                                                    </thead>
-                                                    <tbody className="divide-y divide-slate-100">
-                                                        {activeDevices.map(dev => (
-                                                            <tr key={dev.id} className="hover:bg-slate-50 transition-colors">
-                                                                <td className="p-4">
-                                                                    <div className="font-bold text-slate-800 text-xs">{dev.deviceName}</div>
-                                                                    <div className="text-[10px] text-slate-400 font-mono mt-0.5" dir="ltr">{dev.deviceId}</div>
-                                                                </td>
-                                                                <td className="p-4 font-bold text-emerald-800 text-xs">{dev.role}</td>
-                                                                <td className="p-4 text-xs text-slate-600">{dev.location}</td>
-                                                                <td className="p-4 text-[11px] text-slate-500 font-bold">
-                                                                    {dev.lastLogin?.toDate ? dev.lastLogin.toDate().toLocaleString('ar-SA') : 'الآن'}
-                                                                </td>
-                                                                <td className="p-4">
-                                                                    <span className={`text-[10px] px-2.5 py-1 rounded-md font-bold ${dev.status === 'active' ? 'bg-emerald-50 text-emerald-700 border border-emerald-200' : dev.status === 'blocked' ? 'bg-rose-50 text-rose-700 border border-rose-200' : 'bg-slate-50 text-slate-500 border border-slate-200'}`}>
-                                                                        {dev.status === 'active' ? 'متصل حالياً' : dev.status === 'blocked' ? 'محظور نهائياً' : 'غير متصل'}
-                                                                    </span>
-                                                                </td>
-                                                                <td className="p-4 text-center">
-                                                                    <div className="flex justify-center gap-1.5">
-                                                                        {dev.status === 'active' && (
-                                                                            <button onClick={() => manageDevice(dev.id, 'kicked')} className="bg-orange-50 text-orange-600 hover:bg-orange-100 px-3 py-1.5 rounded-xl font-bold text-[11px] border border-orange-200 transition-all">
-                                                                                طرد 🚪
-                                                                            </button>
-                                                                        )}
-                                                                        {dev.status !== 'blocked' ? (
-                                                                            <button onClick={() => manageDevice(dev.id, 'blocked')} className="bg-rose-600 hover:bg-rose-700 text-white px-3 py-1.5 rounded-xl font-bold text-[11px] shadow-sm transition-all">
-                                                                                حظر 🚫
-                                                                            </button>
-                                                                        ) : (
-                                                                            <button onClick={() => manageDevice(dev.id, 'active')} className="bg-emerald-600 hover:bg-emerald-700 text-white px-3 py-1.5 rounded-xl font-bold text-[11px] shadow-sm transition-all">
-                                                                                فك الحظر ♻️
-                                                                            </button>
-                                                                        )}
-                                                                    </div>
-                                                                </td>
-                                                            </tr>
-                                                        ))}
-                                                    </tbody>
-                                                </table>
-                                            </div>
-                                        </div>
-                                    </div>
-                                )}
-
                                 {view === 'settings' && (
                                     <div className="bg-white p-6 rounded-3xl border border-slate-200/80 space-y-6 shadow-sm">
                                         <div>
@@ -2528,7 +2345,6 @@
                         )}
                     </main>
 
-                    {/* --- Overlays & Modals --- */}
                     {showPledgeModal && (
                         <div className="fixed inset-0 z-50 flex items-center justify-center p-4 modal-overlay">
                             <form onSubmit={handleAddPledge} className="bg-white w-full max-w-md rounded-3xl p-6 space-y-4 shadow-2xl">
@@ -2662,4 +2478,3 @@
     </script>
 </body>
 </html>
-```
