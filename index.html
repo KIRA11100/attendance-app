@@ -3,10 +3,10 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>نظام إتقان - الإدارة السحابية الشاملة</title>
+    <title>منصة إتقان للرصد فقط</title>
     
     <!-- Fonts -->
-    <link href="https://fonts.googleapis.com/css2?family=Tajawal:wght@400;500;700;800&display=swap" rel="stylesheet">
+    <link href="https://fonts.googleapis.com/css2?family=Tajawal:wght@400;500;700;800;900&family=Amiri:wght@700&display=swap" rel="stylesheet">
     <script src="https://cdn.tailwindcss.com"></script>
     
     <!-- React & Babel -->
@@ -177,7 +177,7 @@
             const [filterGroup, setFilterGroup] = useState('ALL');
             const [filterAbsence, setFilterAbsence] = useState('ALL');
             const [filterHomework, setFilterHomework] = useState('ALL');
-            const [filterStatus, setFilterStatus] = useState('ALL'); // فلتر حالة القيد (نشط / منقطع)
+            const [filterStatus, setFilterStatus] = useState('ALL');
             const [search, setSearch] = useState('');
             const fileInputRef = useRef(null);
 
@@ -1008,6 +1008,7 @@
 
             const getStatusBadge = (count) => {
                 const c = Number(count) || 0;
+                if (c === 0) return <span className="bg-emerald-50 text-emerald-800 border border-emerald-300 px-2.5 py-0.5 rounded-lg text-xs font-bold">بدون غياب ⭐</span>;
                 if (c >= 6) return <span className="bg-rose-100 text-rose-700 border border-rose-200 px-2.5 py-0.5 rounded-lg text-xs font-bold">خطر (حمراء)</span>;
                 if (c >= 3) return <span className="bg-amber-100 text-amber-800 border border-amber-200 px-2.5 py-0.5 rounded-lg text-xs font-bold">تحذير (صفراء)</span>;
                 return <span className="bg-emerald-100 text-emerald-800 border border-emerald-200 px-2.5 py-0.5 rounded-lg text-xs font-bold">طبيعي</span>;
@@ -1026,8 +1027,10 @@
                     const matchSearch = s.name.includes(search) || s.phone.includes(search);
                     
                     let matchAbsence = true;
+                    const absCount = Number(s.absences) || 0;
                     const absCategory = getAbsenceCategory(s.absences);
-                    if (filterAbsence === 'NORMAL') matchAbsence = absCategory === 'normal';
+                    if (filterAbsence === 'PERFECT') matchAbsence = absCount === 0;
+                    else if (filterAbsence === 'NORMAL') matchAbsence = absCategory === 'normal';
                     else if (filterAbsence === 'WARNING') matchAbsence = absCategory === 'warning';
                     else if (filterAbsence === 'DANGER') matchAbsence = absCategory === 'danger';
 
@@ -1099,7 +1102,7 @@
                                 ✓
                             </div>
                             <div className="space-y-1">
-                                <h1 className="text-3xl font-extrabold text-slate-800 tracking-tight">منصة إتقان السحابية</h1>
+                                <h1 className="text-3xl font-extrabold text-slate-800 tracking-tight">منصة إتقان للرصد فقط</h1>
                                 <p className="text-slate-500 text-xs font-medium">نظام الإدارة والتحضير السحابي الموحد</p>
                             </div>
                             
@@ -1126,11 +1129,8 @@
                                     onClick={handleLogin} 
                                     className="w-full bg-gradient-to-r from-emerald-700 to-teal-700 hover:from-emerald-800 hover:to-teal-800 text-white p-4 rounded-2xl font-bold text-lg shadow-lg shadow-emerald-900/20 active:scale-[0.98] transition-all"
                                 >
-                                    دخول فوري للمنصة
+                                    دخول للمنصة
                                 </button>
-                            </div>
-                            <div className="text-[11px] text-slate-400 font-bold">
-                                
                             </div>
                         </div>
                     </div>
@@ -1802,15 +1802,17 @@
                                                 {groups.map(g => <option key={g} value={g}>{g}</option>)}
                                             </select>
 
-                                            {/* فلتر حالة القيد الجديد */}
+                                            {/* فلتر حالة القيد */}
                                             <select value={filterStatus} onChange={e => setFilterStatus(e.target.value)} className="bg-emerald-50 text-emerald-900 border border-emerald-300 rounded-xl px-3 py-1.5 font-bold outline-none">
                                                 <option value="ALL">جميع حالات القيد (الكل)</option>
                                                 <option value="ACTIVE">الطلاب المستمرون فقط (نشط)</option>
                                                 <option value="INACTIVE">الطلاب المنقطعون فقط (منقطع)</option>
                                             </select>
 
+                                            {/* فلتر الغيابات المحدث مع خيار بدون غياب */}
                                             <select value={filterAbsence} onChange={e => setFilterAbsence(e.target.value)} className="bg-slate-50 border rounded-xl px-3 py-1.5 font-bold outline-none">
                                                 <option value="ALL">جميع حالات الغياب</option>
+                                                <option value="PERFECT">بدون أي غياب (0 غياب) ⭐</option>
                                                 <option value="NORMAL">غياب طبيعي (أقل من 3)</option>
                                                 <option value="WARNING">تحذير أصفر (3 إلى 5 غيابات)</option>
                                                 <option value="DANGER">خطر أحمر (6 غيابات فأكثر)</option>
@@ -1868,6 +1870,9 @@
                                                     <tbody className="divide-y divide-slate-100">
                                                         {filteredStudents.map(s => {
                                                             const hwAlert = getHomeworkAlert(s.missedHomework || 0);
+                                                            const lMsg = settings.listener_template
+                                                                .replace(/{student_name}/g, s.name)
+                                                                .replace(/{reason}/g, `تجاوز الحد المسموح به في لائحة الانضباط (غياب: ${s.absences || 0}، عدم تسليم واجبات: ${s.missedHomework || 0})`);
 
                                                             return (
                                                                 <tr key={s.id} className="hover:bg-slate-50/80 transition-colors">
@@ -1904,9 +1909,16 @@
                                                                         </span>
                                                                     </td>
                                                                     <td className="p-4 text-center">
-                                                                        <div className="flex justify-center gap-1.5">
-                                                                            <button onClick={() => setEditingStudent({...s})} className="bg-slate-100 text-slate-700 hover:bg-slate-200 px-2.5 py-1 rounded-xl font-bold text-xs">تعديل ✏️</button>
-                                                                            <button onClick={() => deleteSingleStudent(s.id)} className="bg-rose-50 text-rose-600 hover:bg-rose-100 px-2.5 py-1 rounded-xl font-bold text-xs">حذف 🗑️</button>
+                                                                        <div className="flex justify-center items-center gap-1.5 flex-wrap">
+                                                                            <a 
+                                                                                href={`https://wa.me/${s.phone}?text=${encodeURIComponent(lMsg)}`} 
+                                                                                target="_blank" 
+                                                                                className="bg-purple-700 hover:bg-purple-800 text-white px-2.5 py-1 rounded-xl font-bold text-xs shadow-sm transition-all whitespace-nowrap"
+                                                                            >
+                                                                                صفة مستمع 📢
+                                                                            </a>
+                                                                            <button onClick={() => setEditingStudent({...s})} className="bg-slate-100 text-slate-700 hover:bg-slate-200 px-2.5 py-1 rounded-xl font-bold text-xs whitespace-nowrap">تعديل ✏️</button>
+                                                                            <button onClick={() => deleteSingleStudent(s.id)} className="bg-rose-50 text-rose-600 hover:bg-rose-100 px-2.5 py-1 rounded-xl font-bold text-xs whitespace-nowrap">حذف 🗑️</button>
                                                                         </div>
                                                                     </td>
                                                                 </tr>
