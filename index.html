@@ -2029,7 +2029,7 @@
                                                                     .replace(/{student_name}/g, s.name)
                                                                     .replace(/{exam_name}/g, examTitle)
                                                                     .replace(/{grade}/g, currentGrade || 'لم تحدد بعد')
-                                                                    .replace(/{notes}/g, currentNotes || 'لا توجد ملاحظات');
+                                                                    .replace(/{notes}/g, studentNote || 'لا توجد ملاحظات');
 
                                                             return (
                                                                 <tr key={s.id} className="hover:bg-slate-50/80 transition-colors">
