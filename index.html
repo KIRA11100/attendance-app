@@ -2015,6 +2015,11 @@
                                                             const isFinal = selectedExamType === 'final_exam';
                                                             const examTitle = EXAM_TYPES.find(x => x.id === selectedExamType)?.title;
 
+                                                            // نحدد نص الملاحظة: إذا كتب المعلم ملاحظة نضعها، وإذا كانت فارغة نكتب عبارة لطيفة
+                                                            const studentNote = currentNotes && currentNotes.trim() !== '' 
+                                                            ? currentNotes.trim() 
+                                                            : 'لا توجد ملاحظات إضافية، مستوى متميز بارك الله فيه.';
+                                        
                                                             let whatsappMsg = isFinal
                                                                 ? settings.final_exam_template
                                                                     .replace(/{student_name}/g, s.name)
