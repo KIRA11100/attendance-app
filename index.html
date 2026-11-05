@@ -260,8 +260,8 @@
                 if (role === 'teacher' && currentTeacher) {
                     const today = getTodayDateStr();
                     const teacherGroup = String(currentTeacher.subject || '').trim();
-                    const attLogId = `${teacherGroup.replace(/\s+/g, '_')}_${today}`;
-                    const hwLogId = `hw_${teacherGroup.replace(/\s+/g, '_')}_${today}`;
+                    const attLogId = `${teacherGroup.replace(/[\s/()]+/g, '_')}_${today}`;
+                    const hwLogId = `hw_${teacherGroup.replace(/[\s/()]+/g, '_')}_${today}`;
 
                     const existingAtt = logs.find(l => l.id === attLogId);
                     const existingHw = homeworkLogs.find(l => l.id === hwLogId);
@@ -355,8 +355,8 @@
 
             const handleStartGroup = (groupName) => {
                 const today = getTodayDateStr();
-                const attSessionId = `${groupName.replace(/\s+/g, '_')}_${today}`;
-                const hwSessionId = `hw_${groupName.replace(/\s+/g, '_')}_${today}`;
+                const attSessionId = `${groupName.replace(/[\s/()]+/g, '_')}_${today}`;
+                const hwSessionId = `hw_${groupName.replace(/[\s/()]+/g, '_')}_${today}`;
                 
                 const existingAttLog = logs.find(l => l.id === attSessionId);
                 const existingHwLog = homeworkLogs.find(l => l.id === hwSessionId);
@@ -390,7 +390,7 @@
             const submitAttendance = async (groupToSubmit) => {
                 const groupName = groupToSubmit || activeMonitorGroup;
                 const today = getTodayDateStr();
-                const sessionId = `${groupName.replace(/\s+/g, '_')}_${today}`;
+                const sessionId = `${groupName.replace(/[\s/()]+/g, '_')}_${today}`;
                 const existingLog = logs.find(l => l.id === sessionId);
                 const activeGroupStudents = students
                     .filter(s => String(s.group).trim() === groupName && s.active)
@@ -444,7 +444,7 @@
             const submitHomework = async (groupToSubmit) => {
                 const groupName = groupToSubmit || activeMonitorGroup;
                 const today = getTodayDateStr();
-                const sessionId = `hw_${groupName.replace(/\s+/g, '_')}_${today}`;
+                const sessionId = `hw_${groupName.replace(/[\s/()]+/g, '_')}_${today}`;
                 const existingLog = homeworkLogs.find(l => l.id === sessionId);
                 const activeGroupStudents = students
                     .filter(s => String(s.group).trim() === groupName && s.active)
@@ -1427,8 +1427,8 @@
                                         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
                                             {groups.map(g => {
                                                 const count = students.filter(s => String(s.group).trim() === g && s.active).length;
-                                                const isAttDone = logs.some(l => l.id === `${g.replace(/\s+/g, '_')}_${getTodayDateStr()}`);
-                                                const isHwDone = homeworkLogs.some(l => l.id === `hw_${g.replace(/\s+/g, '_')}_${getTodayDateStr()}`);
+                                                const isAttDone = logs.some(l => l.id === `${g.replace(/[\s/()]+/g, '_')}_${getTodayDateStr()}`);
+                                                const isHwDone = homeworkLogs.some(l => l.id === `hw_${g.replace(/[\s/()]+/g, '_')}_${getTodayDateStr()}`);
 
                                                 return (
                                                     <div 
